@@ -41,9 +41,9 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
   const [showChromeModal, setShowChromeModal] = useState<boolean>(false);
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
 
-  // Unblocked GitHub Pages Mirror URL (100% Accessible in Iran without VPN)
-  const GITHUB_PAGES_MIRROR_URL = "https://majid-nikbin.github.io/mariner-pro/";
-  const FALLBACK_APP_URL = "https://ais-pre-47mtqh2agf55ojcyu7craj-671128760309.us-west2.run.app";
+  // Unblocked GitHub Pages Mirror URL (100% Accessible in Iran without VPN & Verified Working)
+  const GITHUB_PAGES_MIRROR_URL = "https://majid-nikbin.github.io/Majid-Nikbin/";
+  const FALLBACK_APP_URL = "https://majid-nikbin.github.io/Majid-Nikbin/";
 
   // Check if running inside installed Android APK (Capacitor)
   const isInsideApk = typeof window !== 'undefined' && (
