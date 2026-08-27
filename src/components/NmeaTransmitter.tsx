@@ -276,7 +276,7 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2.5 text-cyan-300 font-bold text-sm">
                 <Globe className="w-5 h-5 text-cyan-400" />
-                <span>USB Serial Hardware Access (OTG)</span>
+                <span>USB Serial OTG Connection</span>
               </div>
               <button
                 type="button"
@@ -288,27 +288,17 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
             </div>
 
             <p className="text-xs text-slate-300 leading-relaxed">
-              برای ارسال مستقیم سیگنال‌های NMEA به پورت فیزیکی سخت‌افزار (CH340 / CP2102 / FTDI / MAX485)، برنامه در مرورگر کروم باز می‌شود تا به پورت OTG دسترسی داشته باشد.
+              Direct physical USB OTG serial communication (CH340, CP2102, FTDI, MAX485) requires WebUSB support in Google Chrome.
             </p>
 
-            <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 text-xs space-y-2.5 text-slate-300">
-              <div className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span className="leading-snug">
-                  <strong>بدون نیاز به فیلترشکن (VPN):</strong> از آدرس آزاد گیت‌هاب استفاده می‌شود و در سراسر ایران کاملاً باز است.
-                </span>
+            <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 text-xs space-y-2 text-slate-300 font-mono">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>100% Offline cached support</span>
               </div>
-              <div className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span className="leading-snug">
-                  <strong>کارکرد ۱۰۰٪ آفلاین (بدون اینترنت):</strong> تمام دیتابیس و کدهای برنامه در حافظه داخلی ذخیره (Cache) می‌شوند و در دریا یا حالت هواپیما بدون اینترنت اجرا می‌گردد.
-                </span>
-              </div>
-              <div className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
-                <span className="leading-snug">
-                  <strong>پیشنهاد ویژه:</strong> در کروم روی منوی سه نقطه بزنید و گزینه <em>«Add to Home screen» (نصب در صفحه اصلی)</em> را انتخاب کنید تا تبدیل به یک اپلیکیشن مستقل شود.
-                </span>
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>Direct hardware baud rate configuration</span>
               </div>
             </div>
 
@@ -316,19 +306,19 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
               <button
                 type="button"
                 onClick={handleCopyLink}
-                className="w-full sm:w-auto px-3 py-2 bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 flex items-center justify-center gap-1.5"
+                className="w-full sm:w-auto px-3 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 flex items-center justify-center gap-1.5"
               >
                 <Copy className="w-3.5 h-3.5" />
-                <span>{copiedLink ? 'لینک کپی شد!' : 'کپی آدرس آزاد'}</span>
+                <span>{copiedLink ? 'Copied Link!' : 'Copy Link'}</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => handleOpenInBrowser(UNBLOCKED_GITHUB_PAGES_URL)}
-                className="w-full sm:w-auto px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 shadow-lg shadow-cyan-950/60"
+                className="w-full sm:w-auto px-4 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 shadow-lg shadow-cyan-950/60 font-mono uppercase tracking-wider"
               >
                 <ExternalLink className="w-4 h-4" />
-                <span>باز کردن در کروم (بدون VPN)</span>
+                <span>Continue in Chrome Browser</span>
               </button>
             </div>
           </div>
