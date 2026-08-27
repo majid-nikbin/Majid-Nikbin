@@ -18,7 +18,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('nav');
   const [headingSource, setHeadingSource] = useState<HeadingSource>('magnetic');
   const [isNightMode, setIsNightMode] = useState<boolean>(false);
-  const [isActivated, setIsActivated] = useState<boolean>(() => getLicenseStatus().isActivated);
+  const [licenseStatus, setLicenseStatus] = useState(() => getLicenseStatus());
   const [showAboutModal, setShowAboutModal] = useState<boolean>(false);
   const [exitToast, setExitToast] = useState<string | null>(null);
 
@@ -293,11 +293,11 @@ export default function App() {
         </div>
       </footer>
 
-      {/* Device License / First Time Activation Modal */}
-      {!isActivated && (
+      {/* Device License / 30-Day Trial Expiration Activation Modal */}
+      {!licenseStatus.isActivated && licenseStatus.isTrialExpired && (
         <ActivationModal 
           developerEmail={OFFICIAL_SUPPORT_EMAIL}
-          onActivated={() => setIsActivated(true)} 
+          onActivated={() => setLicenseStatus(getLicenseStatus())} 
         />
       )}
     </div>

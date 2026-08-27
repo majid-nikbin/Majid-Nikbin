@@ -3,19 +3,15 @@ import {
   Cable, 
   Play, 
   Radio, 
-  Zap, 
   Check, 
   Usb, 
-  Globe, 
-  ExternalLink,
-  CheckCircle2,
+  AlertTriangle,
   X,
-  Copy
+  Zap
 } from 'lucide-react';
 import { CompassData, GpsData, NmeaConfig, SerialPortStatus } from '../types';
 import { AVAILABLE_SENTENCES, generateNmeaSentences } from '../utils/nmea';
 import { serialService } from '../services/serialService';
-import { Browser } from '@capacitor/browser';
 
 interface NmeaTransmitterProps {
   gps: GpsData;
@@ -37,19 +33,7 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
   const [isTransmitting, setIsTransmitting] = useState<boolean>(false);
   const [liveSentences, setLiveSentences] = useState<string[]>([]);
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
-  const [showUsbPopup, setShowUsbPopup] = useState<boolean>(false);
-  const [copiedLink, setCopiedLink] = useState<boolean>(false);
-
-  // Unblocked, direct GitHub Pages URL (100% accessible in Iran without VPN)
-  const UNBLOCKED_GITHUB_PAGES_URL = "https://majid-nikbin.github.io/mariner-pro/";
-  const DEV_PREVIEW_URL = "https://ais-pre-47mtqh2agf55ojcyu7craj-671128760309.us-west2.run.app";
-
-  // Check if running inside installed Android APK (Capacitor)
-  const isInsideApk = typeof window !== 'undefined' && (
-    !!(window as any).Capacitor?.isNativePlatform?.() || 
-    window.location.protocol === 'capacitor:' || 
-    window.location.protocol === 'http:' && window.location.hostname === 'localhost'
-  );
+  const [connectError, setConnectError] = useState<string | null>(null);
 
   // Generate real-time preview of sentences
   useEffect(() => {
@@ -69,60 +53,28 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
     return () => clearInterval(interval);
   }, [isTransmitting, serialStatus.connected, gps, compass, config]);
 
-  // Click on "Connect USB OTG" (Direct hardware connection inside APK or Chrome)
+  // Click on "Connect USB OTG" (Direct hardware connection in Chrome / WebUSB)
   const handleConnectUsbClick = async () => {
     setIsConnecting(true);
+    setConnectError(null);
     try {
       await serialService.connect(config.baudRate);
       setIsTransmitting(true);
-      setShowUsbPopup(false);
     } catch (err: any) {
       console.warn('USB Connection issue:', err);
-      // If user simply closed the picker without selecting, don't show popup error
+      // User cancelled picker dialog
       if (err.name === 'NotFoundError' || err.message?.includes('No device selected') || err.message?.includes('cancelled')) {
         setIsConnecting(false);
         return;
       }
-      // If WebUSB / WebSerial is unsupported on this specific engine, show options modal
       if (!serialService.isWebUsbSupported() && !serialService.isWebSerialSupported()) {
-        setShowUsbPopup(true);
+        setConnectError('Direct USB OTG communication requires Google Chrome browser on Android or Desktop.');
+      } else {
+        setConnectError(err.message || 'Could not connect to USB hardware device. Check OTG cable connection.');
       }
     } finally {
       setIsConnecting(false);
     }
-  };
-
-  // Open Chrome browser on Android device using unblocked GitHub Pages
-  const handleOpenInBrowser = async (customUrl?: string) => {
-    const targetUrl = customUrl || UNBLOCKED_GITHUB_PAGES_URL;
-    
-    try {
-      // 1. Try official Capacitor Browser plugin
-      await Browser.open({ url: targetUrl, windowName: '_system' });
-      setShowUsbPopup(false);
-      return;
-    } catch (e) {
-      console.warn('Capacitor Browser open fallback:', e);
-    }
-
-    // 2. Fallback to external window open
-    try {
-      window.open(targetUrl, '_blank');
-    } catch (err) {
-      console.warn('Window open failed:', err);
-    }
-    setShowUsbPopup(false);
-  };
-
-  const handleCopyLink = () => {
-    navigator.clipboard?.writeText(UNBLOCKED_GITHUB_PAGES_URL);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2500);
-  };
-
-  const handleConnectSimulator = () => {
-    serialService.connectSimulated(config.baudRate);
-    setIsTransmitting(true);
   };
 
   const handleDisconnect = async () => {
@@ -162,6 +114,23 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
           : 'bg-slate-800/40 border-slate-700 text-slate-200 shadow-xl'
       }`}
     >
+      {/* Connection Error Banner */}
+      {connectError && (
+        <div className="p-3.5 bg-rose-950/80 border border-rose-600/60 rounded-xl flex items-center justify-between gap-3 text-xs text-rose-200">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{connectError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setConnectError(null)}
+            className="p-1 text-rose-400 hover:text-white"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Header & Status Bar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 bg-slate-900 rounded-xl border border-slate-700">
         <div className="flex items-center gap-3">
@@ -189,9 +158,7 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
                 }`}
               >
                 {serialStatus.connected
-                  ? serialStatus.isSimulated
-                    ? 'SIMULATED ACTIVE'
-                    : 'USB HARDWARE CONNECTED'
+                  ? 'USB HARDWARE CONNECTED'
                   : 'STANDBY'}
               </span>
             </div>
@@ -206,33 +173,20 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
         {/* Action Controls */}
         <div className="flex items-center gap-2 w-full sm:w-auto">
           {!serialStatus.connected ? (
-            <>
-              {/* Connect USB OTG */}
-              <button
-                id="btn-connect-usb-otg"
-                type="button"
-                onClick={handleConnectUsbClick}
-                disabled={isConnecting}
-                className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg transition-all shadow-md ${
-                  isNightMode
-                    ? 'bg-red-700 hover:bg-red-600 text-white'
-                    : 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-[0_0_12px_rgba(34,211,238,0.3)]'
-                }`}
-              >
-                <Usb className="w-4 h-4" />
-                <span>{isConnecting ? 'Connecting...' : 'Connect USB OTG'}</span>
-              </button>
-
-              {/* Simulator */}
-              <button
-                id="btn-connect-simulator"
-                type="button"
-                onClick={handleConnectSimulator}
-                className="px-3 py-2 text-xs font-bold rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-700"
-              >
-                Simulator
-              </button>
-            </>
+            <button
+              id="btn-connect-usb-otg"
+              type="button"
+              onClick={handleConnectUsbClick}
+              disabled={isConnecting}
+              className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 text-xs font-bold rounded-lg transition-all shadow-md ${
+                isNightMode
+                  ? 'bg-red-700 hover:bg-red-600 text-white'
+                  : 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-[0_0_12px_rgba(34,211,238,0.3)]'
+              }`}
+            >
+              <Usb className="w-4 h-4" />
+              <span>{isConnecting ? 'Connecting...' : 'Connect USB OTG'}</span>
+            </button>
           ) : (
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <button
@@ -261,72 +215,6 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
           )}
         </div>
       </div>
-
-      {/* USB Connection Popup Modal with Direct Chrome Launch */}
-      {showUsbPopup && (
-        <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn"
-          onClick={() => setShowUsbPopup(false)}
-        >
-          <div 
-            className="relative max-w-md w-full bg-slate-900 border border-cyan-500/60 rounded-2xl p-6 shadow-2xl flex flex-col gap-4 text-slate-200"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2.5 text-cyan-300 font-bold text-sm">
-                <Globe className="w-5 h-5 text-cyan-400" />
-                <span>USB Serial OTG Connection</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowUsbPopup(false)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-300 leading-relaxed">
-              Direct physical USB OTG serial communication (CH340, CP2102, FTDI, MAX485) requires WebUSB support in Google Chrome.
-            </p>
-
-            <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 text-xs space-y-2 text-slate-300 font-mono">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>100% Offline cached support</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Direct hardware baud rate configuration</span>
-              </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowUsbPopup(false);
-                  handleConnectSimulator();
-                }}
-                className="w-full sm:w-auto px-3.5 py-2.5 bg-slate-800 hover:bg-slate-750 text-cyan-300 text-xs font-bold rounded-lg border border-slate-700 flex items-center justify-center gap-1.5"
-              >
-                <Zap className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Run Simulator Mode</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleOpenInBrowser(UNBLOCKED_GITHUB_PAGES_URL)}
-                className="w-full sm:w-auto px-4 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 shadow-lg shadow-cyan-950/60 font-mono uppercase tracking-wider"
-              >
-                <ExternalLink className="w-4 h-4" />
-                <span>Continue in Chrome Browser</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Interface Configuration Grid */}
       <div className="flex flex-col gap-3">

@@ -450,9 +450,28 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
                   License Status
                 </span>
-                <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-500/40 px-2 py-0.5 rounded">
-                  ✓ Activated & Valid
-                </span>
+                {(() => {
+                  const lic = getLicenseStatus();
+                  if (lic.isActivated) {
+                    return (
+                      <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-500/40 px-2 py-0.5 rounded">
+                        ✓ Activated & Permanent
+                      </span>
+                    );
+                  }
+                  if (lic.isTrialActive) {
+                    return (
+                      <span className="text-xs font-mono font-bold text-cyan-300 bg-cyan-950/60 border border-cyan-500/40 px-2 py-0.5 rounded">
+                        30-Day Free Trial ({lic.daysRemaining} days left)
+                      </span>
+                    );
+                  }
+                  return (
+                    <span className="text-xs font-mono font-bold text-rose-400 bg-rose-950/60 border border-rose-500/40 px-2 py-0.5 rounded">
+                      Trial Expired - Activation Required
+                    </span>
+                  );
+                })()}
               </div>
 
               {/* Developer Key Tool Button inside About Modal - Only if dev mode unlocked */}
