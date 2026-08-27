@@ -38,12 +38,24 @@ jobs:
           touch dist/.nojekyll
           cp dist/index.html dist/404.html
 
-      - name: Deploy Web to GitHub Pages (Unblocked in Iran)
+      - name: Deploy to gh-pages Branch
         uses: JamesIves/github-pages-deploy-action@v4
         continue-on-error: true
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           branch: gh-pages
           folder: dist
+          clean: true
+
+      - name: Upload GitHub Pages Artifact (Official Direct Deploy)
+        uses: actions/upload-pages-artifact@v3
+        continue-on-error: true
+        with:
+          path: dist
+
+      - name: Deploy to GitHub Pages Live
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
 
       - name: Install & Configure Capacitor
         run: |
