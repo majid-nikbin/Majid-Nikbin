@@ -35,11 +35,10 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
-  // Cache-First strategy: Return cached version instantly, and update in background if online
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
-        // Fetch in background to update cache for next time if online
+        // Fetch update in background
         fetch(event.request)
           .then((networkResponse) => {
             if (networkResponse && networkResponse.status === 200) {
@@ -50,7 +49,6 @@ self.addEventListener('fetch', (event) => {
         return cachedResponse;
       }
 
-      // If not in cache, fetch from network and store
       return fetch(event.request)
         .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
@@ -60,10 +58,12 @@ self.addEventListener('fetch', (event) => {
           return networkResponse;
         })
         .catch(() => {
-          // Fallback to cached index.html for navigation requests
           if (event.request.mode === 'navigate') {
-            return caches.match('./index.html') || caches.match('/');
+            return caches.match('./index.html').then((fallback) => {
+              return fallback || fetch(event.request);
+            });
           }
+          return new Response('Offline', { status: 503, statusText: 'Offline' });
         });
     })
   );
