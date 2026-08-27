@@ -1,0 +1,517 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  Cable, 
+  Play, 
+  Radio, 
+  Zap, 
+  Check, 
+  Usb, 
+  Globe, 
+  ExternalLink,
+  CheckCircle2,
+  X,
+  Copy
+} from 'lucide-react';
+import { CompassData, GpsData, NmeaConfig, SerialPortStatus } from '../types';
+import { AVAILABLE_SENTENCES, generateNmeaSentences } from '../utils/nmea';
+import { serialService } from '../services/serialService';
+import { Browser } from '@capacitor/browser';
+
+interface NmeaTransmitterProps {
+  gps: GpsData;
+  compass: CompassData;
+  config: NmeaConfig;
+  onConfigChange: (newConfig: NmeaConfig) => void;
+  serialStatus: SerialPortStatus;
+  isNightMode?: boolean;
+}
+
+export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
+  gps,
+  compass,
+  config,
+  onConfigChange,
+  serialStatus,
+  isNightMode = false,
+}) => {
+  const [isTransmitting, setIsTransmitting] = useState<boolean>(false);
+  const [liveSentences, setLiveSentences] = useState<string[]>([]);
+  const [isConnecting, setIsConnecting] = useState<boolean>(false);
+  const [showUsbPopup, setShowUsbPopup] = useState<boolean>(false);
+  const [copiedLink, setCopiedLink] = useState<boolean>(false);
+
+  // Unblocked, direct GitHub Pages URL (100% accessible in Iran without VPN)
+  const UNBLOCKED_GITHUB_PAGES_URL = "https://majid-nikbin.github.io/mariner-pro/";
+  const DEV_PREVIEW_URL = "https://ais-pre-47mtqh2agf55ojcyu7craj-671128760309.us-west2.run.app";
+
+  // Check if running inside installed Android APK (Capacitor)
+  const isInsideApk = typeof window !== 'undefined' && (
+    !!(window as any).Capacitor?.isNativePlatform?.() || 
+    window.location.protocol === 'capacitor:' || 
+    window.location.protocol === 'http:' && window.location.hostname === 'localhost'
+  );
+
+  // Generate real-time preview of sentences
+  useEffect(() => {
+    const generated = generateNmeaSentences(gps, compass, config);
+    setLiveSentences(generated);
+  }, [gps, compass, config]);
+
+  // Transmit interval loop when enabled & port connected
+  useEffect(() => {
+    if (!isTransmitting || !serialStatus.connected) return;
+
+    const interval = setInterval(async () => {
+      const sentences = generateNmeaSentences(gps, compass, config);
+      await serialService.writeSentences(sentences);
+    }, config.intervalMs);
+
+    return () => clearInterval(interval);
+  }, [isTransmitting, serialStatus.connected, gps, compass, config]);
+
+  // Click on "Connect USB OTG"
+  const handleConnectUsbClick = async () => {
+    if (isInsideApk) {
+      // In native APK: show popup explaining Web Chrome direct OTG support
+      setShowUsbPopup(true);
+      return;
+    }
+
+    // In web browser (Chrome): directly invoke WebUSB / WebSerial
+    setIsConnecting(true);
+    try {
+      await serialService.connect(config.baudRate);
+      setIsTransmitting(true);
+    } catch (err: any) {
+      console.warn('USB Connection issue:', err);
+      if (!serialService.isWebUsbSupported() && !serialService.isWebSerialSupported()) {
+        setShowUsbPopup(true);
+      }
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
+  // Open Chrome browser on Android device using unblocked GitHub Pages
+  const handleOpenInBrowser = async (customUrl?: string) => {
+    const targetUrl = customUrl || UNBLOCKED_GITHUB_PAGES_URL;
+    
+    try {
+      // 1. Try official Capacitor Browser plugin
+      await Browser.open({ url: targetUrl, windowName: '_system' });
+      setShowUsbPopup(false);
+      return;
+    } catch (e) {
+      console.warn('Capacitor Browser open fallback:', e);
+    }
+
+    // 2. Fallback to external window open
+    try {
+      window.open(targetUrl, '_blank');
+    } catch (err) {
+      console.warn('Window open failed:', err);
+    }
+    setShowUsbPopup(false);
+  };
+
+  const handleCopyLink = () => {
+    navigator.clipboard?.writeText(UNBLOCKED_GITHUB_PAGES_URL);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2500);
+  };
+
+  const handleConnectSimulator = () => {
+    serialService.connectSimulated(config.baudRate);
+    setIsTransmitting(true);
+  };
+
+  const handleDisconnect = async () => {
+    setIsTransmitting(false);
+    await serialService.disconnect();
+  };
+
+  const toggleSentence = (id: string) => {
+    const current = !config.activeSentences || !config.activeSentences[id] ? false : true;
+    onConfigChange({
+      ...config,
+      activeSentences: {
+        ...config.activeSentences,
+        [id]: !current,
+      },
+    });
+  };
+
+  const selectAll = () => {
+    const next: Record<string, boolean> = {};
+    AVAILABLE_SENTENCES.forEach((s) => {
+      next[s.id] = true;
+    });
+    onConfigChange({ ...config, activeSentences: next });
+  };
+
+  const deselectAll = () => {
+    onConfigChange({ ...config, activeSentences: {} });
+  };
+
+  return (
+    <div
+      id="nmea-transmitter-panel"
+      className={`p-5 rounded-2xl border transition-all flex flex-col gap-5 ${
+        isNightMode
+          ? 'bg-zinc-950/80 border-red-900/50 text-red-100 shadow-xl'
+          : 'bg-slate-800/40 border-slate-700 text-slate-200 shadow-xl'
+      }`}
+    >
+      {/* Header & Status Bar */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 bg-slate-900 rounded-xl border border-slate-700">
+        <div className="flex items-center gap-3">
+          <div
+            className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+              serialStatus.connected
+                ? isNightMode
+                  ? 'bg-red-700 text-white'
+                  : 'bg-cyan-600 text-white shadow-[0_0_12px_rgba(34,211,238,0.4)]'
+                : 'bg-slate-800 text-slate-400 border border-slate-700'
+            }`}
+          >
+            <Cable className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xs font-bold text-white uppercase tracking-wider">
+                USB OTG Port Controller
+              </h2>
+              <span
+                className={`px-2 py-0.5 text-[9px] font-bold rounded uppercase tracking-widest ${
+                  serialStatus.connected
+                    ? 'bg-green-900/30 border border-green-500/50 text-green-400'
+                    : 'bg-slate-800 text-slate-400 border border-slate-700'
+                }`}
+              >
+                {serialStatus.connected
+                  ? serialStatus.isSimulated
+                    ? 'SIMULATED ACTIVE'
+                    : 'USB HARDWARE CONNECTED'
+                  : 'STANDBY'}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 font-mono mt-0.5">
+              {serialStatus.connected
+                ? `${serialStatus.driverType || 'Serial Device'} • ${serialStatus.baudRate} bps • ${serialStatus.sentencesSent} packets sent`
+                : 'MAX485 / CH340 / CP2102 / FTDI OTG Controller'}
+            </p>
+          </div>
+        </div>
+
+        {/* Action Controls */}
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          {!serialStatus.connected ? (
+            <>
+              {/* Connect USB OTG */}
+              <button
+                id="btn-connect-usb-otg"
+                type="button"
+                onClick={handleConnectUsbClick}
+                disabled={isConnecting}
+                className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg transition-all shadow-md ${
+                  isNightMode
+                    ? 'bg-red-700 hover:bg-red-600 text-white'
+                    : 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-[0_0_12px_rgba(34,211,238,0.3)]'
+                }`}
+              >
+                <Usb className="w-4 h-4" />
+                <span>{isConnecting ? 'Connecting...' : 'Connect USB OTG'}</span>
+              </button>
+
+              {/* Simulator */}
+              <button
+                id="btn-connect-simulator"
+                type="button"
+                onClick={handleConnectSimulator}
+                className="px-3 py-2 text-xs font-bold rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 border border-slate-700"
+              >
+                Simulator
+              </button>
+            </>
+          ) : (
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <button
+                id="btn-toggle-tx"
+                type="button"
+                onClick={() => setIsTransmitting(!isTransmitting)}
+                className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all ${
+                  isTransmitting
+                    ? 'bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-950/50'
+                    : 'bg-amber-600 hover:bg-amber-500 text-white'
+                }`}
+              >
+                {isTransmitting ? <Radio className="w-4 h-4 animate-pulse" /> : <Play className="w-4 h-4" />}
+                <span>{isTransmitting ? 'TX Active' : 'Start TX'}</span>
+              </button>
+
+              <button
+                id="btn-disconnect-usb"
+                type="button"
+                onClick={handleDisconnect}
+                className="px-3 py-2 text-xs font-bold rounded-lg bg-rose-950/60 border border-rose-800 text-rose-300 hover:bg-rose-900"
+              >
+                Disconnect
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* USB Connection Popup Modal with Direct Chrome Launch */}
+      {showUsbPopup && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn"
+          onClick={() => setShowUsbPopup(false)}
+        >
+          <div 
+            className="relative max-w-md w-full bg-slate-900 border border-cyan-500/60 rounded-2xl p-6 shadow-2xl flex flex-col gap-4 text-slate-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5 text-cyan-300 font-bold text-sm">
+                <Globe className="w-5 h-5 text-cyan-400" />
+                <span>USB Serial Hardware Access (OTG)</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowUsbPopup(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              برای ارسال مستقیم سیگنال‌های NMEA به پورت فیزیکی سخت‌افزار (CH340 / CP2102 / FTDI / MAX485)، برنامه در مرورگر کروم باز می‌شود تا به پورت OTG دسترسی داشته باشد.
+            </p>
+
+            <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 text-xs space-y-2.5 text-slate-300">
+              <div className="flex items-start gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <span className="leading-snug">
+                  <strong>بدون نیاز به فیلترشکن (VPN):</strong> از آدرس آزاد گیت‌هاب استفاده می‌شود و در سراسر ایران کاملاً باز است.
+                </span>
+              </div>
+              <div className="flex items-start gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <span className="leading-snug">
+                  <strong>کارکرد ۱۰۰٪ آفلاین (بدون اینترنت):</strong> تمام دیتابیس و کدهای برنامه در حافظه داخلی ذخیره (Cache) می‌شوند و در دریا یا حالت هواپیما بدون اینترنت اجرا می‌گردد.
+                </span>
+              </div>
+              <div className="flex items-start gap-2">
+                <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+                <span className="leading-snug">
+                  <strong>پیشنهاد ویژه:</strong> در کروم روی منوی سه نقطه بزنید و گزینه <em>«Add to Home screen» (نصب در صفحه اصلی)</em> را انتخاب کنید تا تبدیل به یک اپلیکیشن مستقل شود.
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="w-full sm:w-auto px-3 py-2 bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 flex items-center justify-center gap-1.5"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>{copiedLink ? 'لینک کپی شد!' : 'کپی آدرس آزاد'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleOpenInBrowser(UNBLOCKED_GITHUB_PAGES_URL)}
+                className="w-full sm:w-auto px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 shadow-lg shadow-cyan-950/60"
+              >
+                <ExternalLink className="w-4 h-4" />
+                <span>باز کردن در کروم (بدون VPN)</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Interface Configuration Grid */}
+      <div className="flex flex-col gap-3">
+        <div className="flex justify-between items-center">
+          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+            Interface Configuration
+          </h3>
+          <div className="text-[10px] text-slate-500 uppercase font-mono">
+            IEC 61162-1
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {/* Baud Rate */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-slate-400 font-medium">Baud Rate (bps)</label>
+            <select
+              disabled={serialStatus.connected}
+              value={config.baudRate}
+              onChange={(e) =>
+                onConfigChange({ ...config, baudRate: Number(e.target.value) })
+              }
+              className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold text-cyan-300 outline-none disabled:opacity-50"
+            >
+              <option value={4800}>4800 (Standard NMEA)</option>
+              <option value={9600}>9600 (Fast GPS)</option>
+              <option value={38400}>38400 (High-Speed AIS)</option>
+              <option value={115200}>115200 (Telemetry)</option>
+            </select>
+          </div>
+
+          {/* Transmit Rate */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-slate-400 font-medium">Transmit Rate</label>
+            <select
+              value={config.intervalMs}
+              onChange={(e) =>
+                onConfigChange({ ...config, intervalMs: Number(e.target.value) })
+              }
+              className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold text-white outline-none"
+            >
+              <option value={100}>10 Hz (100ms)</option>
+              <option value={200}>5 Hz (200ms)</option>
+              <option value={500}>2 Hz (500ms)</option>
+              <option value={1000}>1 Hz (1000ms)</option>
+            </select>
+          </div>
+
+          {/* Talker ID GPS */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-slate-400 font-medium">GNSS Talker</label>
+            <select
+              value={config.talkerIdGps}
+              onChange={(e) =>
+                onConfigChange({ ...config, talkerIdGps: e.target.value })
+              }
+              className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold text-white outline-none"
+            >
+              <option value="GP">GP (GPS)</option>
+              <option value="GN">GN (Combined GNSS)</option>
+              <option value="GL">GL (GLONASS)</option>
+              <option value="GA">GA (Galileo)</option>
+            </select>
+          </div>
+
+          {/* Talker ID Heading */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-slate-400 font-medium">Heading Talker</label>
+            <select
+              value={config.talkerIdHeading}
+              onChange={(e) =>
+                onConfigChange({ ...config, talkerIdHeading: e.target.value })
+              }
+              className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold text-white outline-none"
+            >
+              <option value="HC">HC (Magnetic Compass)</option>
+              <option value="HE">HE (North Gyro)</option>
+              <option value="HN">HN (Non-North Gyro)</option>
+              <option value="TI">TI (Turn Indicator)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Sentence Selection Matrix - Compact, clean buttons without bulky sub-descriptions */}
+      <div className="flex flex-col gap-2.5">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+            Active NMEA 0183 Sentence Matrix
+          </h3>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={selectAll}
+              className="text-[11px] font-mono text-cyan-400 hover:text-cyan-300 underline"
+            >
+              Select All
+            </button>
+            <span className="text-slate-600">•</span>
+            <button
+              type="button"
+              onClick={deselectAll}
+              className="text-[11px] font-mono text-slate-400 hover:text-slate-300 underline"
+            >
+              Clear All
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+          {AVAILABLE_SENTENCES.map((item) => {
+            const isActive = !config.activeSentences || !config.activeSentences[item.id] ? false : true;
+            return (
+              <div
+                key={item.id}
+                onClick={() => toggleSentence(item.id)}
+                className={`px-3 py-2 rounded-xl border cursor-pointer select-none transition-all flex items-center justify-between gap-2 ${
+                  isActive
+                    ? 'bg-slate-900 border-cyan-500/60 shadow-sm'
+                    : 'bg-slate-900/40 border-slate-800 opacity-60 hover:opacity-90'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <div
+                    className={`w-4 h-4 rounded flex items-center justify-center shrink-0 ${
+                      isActive
+                        ? 'bg-cyan-500 text-slate-950'
+                        : 'border border-slate-600 bg-slate-800'
+                    }`}
+                  >
+                    {isActive && <Check className="w-3 h-3 stroke-[3]" />}
+                  </div>
+                  <span className="font-mono font-bold text-xs text-white">{item.id}</span>
+                </div>
+
+                <span
+                  className={`text-[8px] px-1.5 py-0.5 rounded font-bold uppercase ${
+                    item.category === 'heading'
+                      ? 'bg-blue-950/80 text-blue-300 border border-blue-800/80'
+                      : 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/80'
+                  }`}
+                >
+                  {item.category === 'heading' ? 'HDG' : 'GPS'}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Real-time NMEA Outflow Terminal Preview */}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <Zap className="w-3.5 h-3.5 text-amber-400" />
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+              Output Payload Stream Preview (Live Checksums)
+            </h3>
+          </div>
+          <span className="text-[10px] font-mono text-slate-500">
+            {liveSentences.length} active
+          </span>
+        </div>
+
+        <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 font-mono text-xs text-green-400 space-y-1 overflow-x-auto shadow-inner max-h-36">
+          {liveSentences.length > 0 ? (
+            liveSentences.map((line, idx) => (
+              <div key={idx} className="flex gap-2">
+                <span className="text-slate-600 select-none">{String(idx + 1).padStart(2, '0')}</span>
+                <span className="text-white font-bold">{line.substring(0, 6)}</span>
+                <span className="text-emerald-300">{line.substring(6)}</span>
+              </div>
+            ))
+          ) : (
+            <div className="text-slate-500 italic">No active sentences selected in matrix.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};

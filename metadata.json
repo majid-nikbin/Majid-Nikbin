@@ -1,0 +1,6 @@
+{
+  "name": "Marine Compass & NMEA 0183 USB Transceiver",
+  "description": "Marine navigation compass and GPS with standard marine coordinates, NMEA 0183 output generator and input monitor over USB OTG serial.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

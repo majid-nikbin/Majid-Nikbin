@@ -1,0 +1,92 @@
+name: Build Offline Android APK & Deploy Web
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Java JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Node.js LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      - name: Install Project Dependencies
+        run: npm install
+
+      - name: Build Web Assets
+        run: npm run build
+
+      - name: Deploy Web to GitHub Pages (Unblocked in Iran)
+        uses: JamesIves/github-pages-deploy-action@v4
+        continue-on-error: true
+        with:
+          branch: gh-pages
+          folder: dist
+
+      - name: Install & Configure Capacitor
+        run: |
+          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/app @capacitor/browser
+          npx cap init "Mariner Pro" "com.mariner.pro" --web-dir "dist"
+          npx cap add android
+
+      - name: Inject Marine Compass App Icon (All Densities & Force Direct Icon)
+        run: |
+          ICON_SRC="public/icon-512.png"
+          if [ ! -f "$ICON_SRC" ]; then
+            ICON_SRC="public/app-icon.jpg"
+          fi
+          
+          # Copy icon to all mipmap density folders
+          for d in mipmap-mdpi mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
+            TARGET_DIR="android/app/src/main/res/$d"
+            mkdir -p "$TARGET_DIR"
+            cp "$ICON_SRC" "$TARGET_DIR/ic_launcher.png"
+            cp "$ICON_SRC" "$TARGET_DIR/ic_launcher_round.png"
+            cp "$ICON_SRC" "$TARGET_DIR/ic_launcher_foreground.png"
+          done
+          
+          # Delete anydpi-v26 adaptive XML wrapper so Android uses the custom compass image directly
+          rm -rf android/app/src/main/res/mipmap-anydpi-v26
+
+      - name: Configure Android Permissions & Optimize APK Size (Reduce to ~4MB)
+        run: |
+          MANIFEST_PATH="android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST_PATH" ]; then
+            sed -i '/<\/manifest>/i \    <uses-feature android:name="android.hardware.usb.host" android:required="false" />\n    <uses-permission android:name="android.permission.USB_PERMISSION" />\n    <uses-permission android:name="android.permission.WAKE_LOCK" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />' $MANIFEST_PATH
+          fi
+
+          # Strip x86 emulator binaries in android/app/build.gradle
+          sed -i "s/defaultConfig {/defaultConfig {\n        ndk { abiFilters 'armeabi-v7a', 'arm64-v8a' }/g" android/app/build.gradle
+
+          npx cap sync android
+
+      - name: Build Android APK with Gradle (No Cache Mode)
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --no-build-cache
+
+      - name: Upload Ready-to-Install APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mariner-Pro-Offline-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
