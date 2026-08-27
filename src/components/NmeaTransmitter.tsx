@@ -7,11 +7,15 @@ import {
   Usb, 
   AlertTriangle,
   X,
-  Zap
+  Zap,
+  Globe,
+  ExternalLink,
+  Copy
 } from 'lucide-react';
 import { CompassData, GpsData, NmeaConfig, SerialPortStatus } from '../types';
 import { AVAILABLE_SENTENCES, generateNmeaSentences } from '../utils/nmea';
 import { serialService } from '../services/serialService';
+import { Browser } from '@capacitor/browser';
 
 interface NmeaTransmitterProps {
   gps: GpsData;
@@ -34,6 +38,18 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
   const [liveSentences, setLiveSentences] = useState<string[]>([]);
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [showChromeModal, setShowChromeModal] = useState<boolean>(false);
+  const [copiedLink, setCopiedLink] = useState<boolean>(false);
+
+  // Unblocked, live web app URL (Works across all networks)
+  const WEB_APP_URL = "https://ais-pre-47mtqh2agf55ojcyu7craj-671128760309.us-west2.run.app";
+
+  // Check if running inside installed Android APK (Capacitor)
+  const isInsideApk = typeof window !== 'undefined' && (
+    !!(window as any).Capacitor?.isNativePlatform?.() || 
+    window.location.protocol === 'capacitor:' || 
+    (window.location.protocol === 'http:' && window.location.hostname === 'localhost')
+  );
 
   // Generate real-time preview of sentences
   useEffect(() => {
@@ -57,6 +73,14 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
   const handleConnectUsbClick = async () => {
     setIsConnecting(true);
     setConnectError(null);
+
+    // If inside APK or WebUSB/WebSerial is not supported in this environment
+    if (!serialService.isWebUsbSupported() && !serialService.isWebSerialSupported()) {
+      setIsConnecting(false);
+      setShowChromeModal(true);
+      return;
+    }
+
     try {
       await serialService.connect(config.baudRate);
       setIsTransmitting(true);
@@ -68,13 +92,43 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
         return;
       }
       if (!serialService.isWebUsbSupported() && !serialService.isWebSerialSupported()) {
-        setConnectError('Direct USB OTG communication requires Google Chrome browser on Android or Desktop.');
+        setShowChromeModal(true);
       } else {
         setConnectError(err.message || 'Could not connect to USB hardware device. Check OTG cable connection.');
       }
     } finally {
       setIsConnecting(false);
     }
+  };
+
+  // Directly launches Google Chrome browser
+  const handleOpenInChrome = async () => {
+    try {
+      // 1. Try official Capacitor Browser plugin
+      await Browser.open({ url: WEB_APP_URL, windowName: '_system' });
+      setShowChromeModal(false);
+      return;
+    } catch (e) {
+      console.warn('Capacitor browser open fallback:', e);
+    }
+
+    // 2. Android Chrome Intent direct launch
+    try {
+      const chromeIntentUrl = `googlechrome://navigate?url=${encodeURIComponent(WEB_APP_URL)}`;
+      window.location.href = chromeIntentUrl;
+      setTimeout(() => {
+        window.open(WEB_APP_URL, '_blank');
+      }, 500);
+    } catch (err) {
+      window.open(WEB_APP_URL, '_blank');
+    }
+    setShowChromeModal(false);
+  };
+
+  const handleCopyLink = () => {
+    navigator.clipboard?.writeText(WEB_APP_URL);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2500);
   };
 
   const handleDisconnect = async () => {
@@ -215,6 +269,63 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
           )}
         </div>
       </div>
+
+      {/* Continue in Chrome Browser Modal for USB Serial Access */}
+      {showChromeModal && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn"
+          onClick={() => setShowChromeModal(false)}
+        >
+          <div 
+            className="relative max-w-md w-full bg-slate-900 border border-cyan-500/60 rounded-2xl p-6 shadow-2xl flex flex-col gap-4 text-slate-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2 text-cyan-300 font-bold text-sm">
+                <Globe className="w-5 h-5 text-cyan-400" />
+                <span>USB Serial Access</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowChromeModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Direct Link Info */}
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex flex-col gap-1.5">
+              <span className="text-[11px] font-mono text-slate-400">Target Web App URL:</span>
+              <div className="text-xs font-mono text-cyan-300 break-all select-all bg-slate-900 px-2.5 py-1.5 rounded border border-slate-800">
+                {WEB_APP_URL}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="w-full sm:w-auto px-3.5 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 flex items-center justify-center gap-1.5"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>{copiedLink ? 'Copied Link!' : 'Copy Link'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenInChrome}
+                className="w-full sm:w-auto px-5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-2 shadow-lg shadow-cyan-950/60 uppercase tracking-wider font-mono"
+              >
+                <ExternalLink className="w-4 h-4" />
+                <span>Continue in Chrome Browser</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Interface Configuration Grid */}
       <div className="flex flex-col gap-3">
