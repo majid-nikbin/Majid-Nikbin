@@ -41,8 +41,9 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
   const [showChromeModal, setShowChromeModal] = useState<boolean>(false);
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
 
-  // Unblocked, live web app URL (Works across all networks)
-  const WEB_APP_URL = "https://ais-pre-47mtqh2agf55ojcyu7craj-671128760309.us-west2.run.app";
+  // Unblocked GitHub Pages Mirror URL (100% Accessible in Iran without VPN)
+  const GITHUB_PAGES_MIRROR_URL = "https://majid-nikbin.github.io/mariner-pro/";
+  const FALLBACK_APP_URL = "https://ais-pre-47mtqh2agf55ojcyu7craj-671128760309.us-west2.run.app";
 
   // Check if running inside installed Android APK (Capacitor)
   const isInsideApk = typeof window !== 'undefined' && (
@@ -101,11 +102,12 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
     }
   };
 
-  // Directly launches Google Chrome browser
-  const handleOpenInChrome = async () => {
+  // Directly launches Google Chrome browser with unblocked GitHub Pages Mirror
+  const handleOpenInChrome = async (customUrl?: string) => {
+    const targetUrl = customUrl || GITHUB_PAGES_MIRROR_URL;
     try {
       // 1. Try official Capacitor Browser plugin
-      await Browser.open({ url: WEB_APP_URL, windowName: '_system' });
+      await Browser.open({ url: targetUrl, windowName: '_system' });
       setShowChromeModal(false);
       return;
     } catch (e) {
@@ -114,19 +116,20 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
 
     // 2. Android Chrome Intent direct launch
     try {
-      const chromeIntentUrl = `googlechrome://navigate?url=${encodeURIComponent(WEB_APP_URL)}`;
+      const chromeIntentUrl = `googlechrome://navigate?url=${encodeURIComponent(targetUrl)}`;
       window.location.href = chromeIntentUrl;
       setTimeout(() => {
-        window.open(WEB_APP_URL, '_blank');
+        window.open(targetUrl, '_blank');
       }, 500);
     } catch (err) {
-      window.open(WEB_APP_URL, '_blank');
+      window.open(targetUrl, '_blank');
     }
     setShowChromeModal(false);
   };
 
-  const handleCopyLink = () => {
-    navigator.clipboard?.writeText(WEB_APP_URL);
+  const handleCopyLink = (url?: string) => {
+    const targetUrl = url || GITHUB_PAGES_MIRROR_URL;
+    navigator.clipboard?.writeText(targetUrl);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2500);
   };
@@ -297,9 +300,9 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
 
             {/* Direct Link Info */}
             <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex flex-col gap-1.5">
-              <span className="text-[11px] font-mono text-slate-400">Target Web App URL:</span>
+              <span className="text-[11px] font-mono text-emerald-400 font-semibold">GitHub Pages Mirror (No VPN Required):</span>
               <div className="text-xs font-mono text-cyan-300 break-all select-all bg-slate-900 px-2.5 py-1.5 rounded border border-slate-800">
-                {WEB_APP_URL}
+                {GITHUB_PAGES_MIRROR_URL}
               </div>
             </div>
 
@@ -307,7 +310,7 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
             <div className="flex flex-col sm:flex-row items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
               <button
                 type="button"
-                onClick={handleCopyLink}
+                onClick={() => handleCopyLink(GITHUB_PAGES_MIRROR_URL)}
                 className="w-full sm:w-auto px-3.5 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 flex items-center justify-center gap-1.5"
               >
                 <Copy className="w-3.5 h-3.5" />
@@ -316,7 +319,7 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
 
               <button
                 type="button"
-                onClick={handleOpenInChrome}
+                onClick={() => handleOpenInChrome(GITHUB_PAGES_MIRROR_URL)}
                 className="w-full sm:w-auto px-5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-2 shadow-lg shadow-cyan-950/60 uppercase tracking-wider font-mono"
               >
                 <ExternalLink className="w-4 h-4" />
