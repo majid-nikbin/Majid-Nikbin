@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <defs>
+    <radialGradient id="parchment192" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F5E6C8"/>
+      <stop offset="70%" stop-color="#DFC498"/>
+      <stop offset="100%" stop-color="#A27D4C"/>
+    </radialGradient>
+    <linearGradient id="bronzeBorder192" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5A3A1A"/>
+      <stop offset="100%" stop-color="#1A0D04"/>
+    </linearGradient>
+    <linearGradient id="goldRing192" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FBBF24"/>
+      <stop offset="50%" stop-color="#D97706"/>
+      <stop offset="100%" stop-color="#78350F"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="192" height="192" rx="16" fill="url(#bronzeBorder192)"/>
+  <rect x="5" y="5" width="182" height="182" rx="12" fill="url(#parchment192)" stroke="#6A4622" stroke-width="2"/>
+
+  <!-- Main Outer Compass Rose -->
+  <g transform="translate(96, 96)">
+    <circle r="72" fill="none" stroke="#5A3A1A" stroke-width="1.5"/>
+    <circle r="60" fill="none" stroke="#5A3A1A" stroke-width="1"/>
+
+    <!-- Minor Points -->
+    <polygon points="0,-55 7,-16 0,0" transform="rotate(45)" fill="#2D3A4B" stroke="#1A2430" stroke-width="0.5"/>
+    <polygon points="0,-55 -7,-16 0,0" transform="rotate(45)" fill="#7A8B9E" stroke="#1A2430" stroke-width="0.5"/>
+    <polygon points="0,-55 7,-16 0,0" transform="rotate(135)" fill="#2D3A4B" stroke="#1A2430" stroke-width="0.5"/>
+    <polygon points="0,-55 -7,-16 0,0" transform="rotate(135)" fill="#7A8B9E" stroke="#1A2430" stroke-width="0.5"/>
+    <polygon points="0,-55 7,-16 0,0" transform="rotate(225)" fill="#2D3A4B" stroke="#1A2430" stroke-width="0.5"/>
+    <polygon points="0,-55 -7,-16 0,0" transform="rotate(225)" fill="#7A8B9E" stroke="#1A2430" stroke-width="0.5"/>
+    <polygon points="0,-55 7,-16 0,0" transform="rotate(315)" fill="#2D3A4B" stroke="#1A2430" stroke-width="0.5"/>
+    <polygon points="0,-55 -7,-16 0,0" transform="rotate(315)" fill="#7A8B9E" stroke="#1A2430" stroke-width="0.5"/>
+
+    <!-- Principal Points -->
+    <polygon points="0,-72 10,-20 0,0" fill="#1C2735" stroke="#0E141C" stroke-width="0.8"/>
+    <polygon points="0,-72 -10,-20 0,0" fill="#8FA4B8" stroke="#0E141C" stroke-width="0.8"/>
+    <polygon points="0,72 10,20 0,0" fill="#8FA4B8" stroke="#0E141C" stroke-width="0.8"/>
+    <polygon points="0,72 -10,20 0,0" fill="#1C2735" stroke="#0E141C" stroke-width="0.8"/>
+    <polygon points="72,0 20,10 0,0" fill="#1C2735" stroke="#0E141C" stroke-width="0.8"/>
+    <polygon points="72,0 20,-10 0,0" fill="#8FA4B8" stroke="#0E141C" stroke-width="0.8"/>
+    <polygon points="-72,0 -20,10 0,0" fill="#8FA4B8" stroke="#0E141C" stroke-width="0.8"/>
+    <polygon points="-72,0 -20,-10 0,0" fill="#1C2735" stroke="#0E141C" stroke-width="0.8"/>
+
+    <!-- Center Boss -->
+    <circle r="18" fill="url(#goldRing192)" stroke="#4A2E00" stroke-width="1.5"/>
+    <circle r="14" fill="#E8B84B"/>
+    <polygon points="0,-12 3,-4 0,0" fill="#7A4C00"/>
+    <polygon points="0,-12 -3,-4 0,0" fill="#FDE68A"/>
+    <polygon points="0,12 3,4 0,0" fill="#FDE68A"/>
+    <polygon points="0,12 -3,4 0,0" fill="#7A4C00"/>
+    <circle r="3" fill="#3D240E"/>
+  </g>
+
+  <!-- Letters -->
+  <text x="96" y="24" fill="#1A1208" font-family="'Times New Roman', Georgia, serif" font-weight="900" font-size="14" text-anchor="middle">S</text>
+  <text x="96" y="180" fill="#1A1208" font-family="'Times New Roman', Georgia, serif" font-weight="900" font-size="14" text-anchor="middle">S</text>
+  <text x="18" y="101" fill="#1A1208" font-family="'Times New Roman', Georgia, serif" font-weight="900" font-size="14" text-anchor="middle">W</text>
+  <text x="174" y="101" fill="#1A1208" font-family="'Times New Roman', Georgia, serif" font-weight="900" font-size="14" text-anchor="middle">C</text>
+</svg>

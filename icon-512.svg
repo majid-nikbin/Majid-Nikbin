@@ -1,0 +1,181 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="parchment" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F5E6C8"/>
+      <stop offset="70%" stop-color="#DFC498"/>
+      <stop offset="100%" stop-color="#A27D4C"/>
+    </radialGradient>
+    <linearGradient id="bronzeBorder" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5A3A1A"/>
+      <stop offset="50%" stop-color="#3D240E"/>
+      <stop offset="100%" stop-color="#1A0D04"/>
+    </linearGradient>
+    <linearGradient id="needleNorth" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1E293B"/>
+      <stop offset="50%" stop-color="#334155"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <linearGradient id="goldRing" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FBBF24"/>
+      <stop offset="50%" stop-color="#D97706"/>
+      <stop offset="100%" stop-color="#78350F"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background Border Frame (Antique Nautical Chart Plate) -->
+  <rect width="512" height="512" rx="32" fill="url(#bronzeBorder)"/>
+  <rect x="12" y="12" width="488" height="488" rx="24" fill="url(#parchment)" stroke="#6A4622" stroke-width="4"/>
+  <rect x="22" y="22" width="468" height="468" rx="18" fill="none" stroke="#8C6239" stroke-width="1.5" stroke-dasharray="4,2"/>
+
+  <!-- Ship Silhouettes in Corners -->
+  <!-- Top Right Ship -->
+  <g transform="translate(390, 42) scale(0.45)" fill="#4A3319" opacity="0.85">
+    <path d="M10 80 Q 70 85 130 80 Q 140 100 110 105 Q 60 110 20 105 Z"/>
+    <rect x="40" y="20" width="4" height="65"/>
+    <rect x="75" y="10" width="4" height="75"/>
+    <rect x="105" y="25" width="3" height="60"/>
+    <path d="M44 25 Q 60 35 44 45 Z M44 50 Q 62 60 44 72 Z"/>
+    <path d="M79 15 Q 98 25 79 38 Z M79 42 Q 102 55 79 70 Z"/>
+    <path d="M108 30 Q 122 40 108 50 Z M108 55 Q 125 65 108 75 Z"/>
+  </g>
+  <!-- Bottom Right Ship -->
+  <g transform="translate(395, 410) scale(0.4)" fill="#4A3319" opacity="0.85">
+    <path d="M10 80 Q 70 85 130 80 Q 140 100 110 105 Q 60 110 20 105 Z"/>
+    <rect x="40" y="20" width="4" height="65"/>
+    <rect x="75" y="10" width="4" height="75"/>
+    <rect x="105" y="25" width="3" height="60"/>
+    <path d="M44 25 Q 60 35 44 45 Z"/>
+    <path d="M79 15 Q 98 25 79 38 Z"/>
+    <path d="M108 30 Q 122 40 108 50 Z"/>
+  </g>
+  <!-- Top Left Astrolabe / Grid -->
+  <g transform="translate(65, 65) scale(0.35)" stroke="#6A4622" stroke-width="2" fill="none" opacity="0.75">
+    <circle cx="0" cy="0" r="70"/>
+    <circle cx="0" cy="0" r="50"/>
+    <circle cx="0" cy="0" r="25"/>
+    <line x1="-80" y1="0" x2="80" y2="0"/>
+    <line x1="0" y1="-80" x2="0" y2="80"/>
+    <line x1="-55" y1="-55" x2="55" y2="55"/>
+    <line x1="-55" y1="55" x2="55" y2="-55"/>
+  </g>
+
+  <!-- Main Outer Compass Rose Rings -->
+  <g transform="translate(256, 256)">
+    <circle r="195" fill="none" stroke="#5A3A1A" stroke-width="3"/>
+    <circle r="185" fill="none" stroke="#7A5228" stroke-width="1.5"/>
+    <circle r="165" fill="none" stroke="#5A3A1A" stroke-width="2"/>
+    <circle r="155" fill="none" stroke="#7A5228" stroke-width="1"/>
+
+    <!-- Degree tick marks -->
+    <g stroke="#5A3A1A" stroke-width="1.5">
+      <line y1="-195" y2="-185" />
+      <line y1="195" y2="185" />
+      <line x1="-195" x2="-185" />
+      <line x1="195" x2="185" />
+      <line transform="rotate(30)" y1="-195" y2="-187" />
+      <line transform="rotate(60)" y1="-195" y2="-187" />
+      <line transform="rotate(120)" y1="-195" y2="-187" />
+      <line transform="rotate(150)" y1="-195" y2="-187" />
+      <line transform="rotate(210)" y1="-195" y2="-187" />
+      <line transform="rotate(240)" y1="-195" y2="-187" />
+      <line transform="rotate(300)" y1="-195" y2="-187" />
+      <line transform="rotate(330)" y1="-195" y2="-187" />
+      <line transform="rotate(45)" y1="-195" y2="-185" stroke-width="2"/>
+      <line transform="rotate(135)" y1="-195" y2="-185" stroke-width="2"/>
+      <line transform="rotate(225)" y1="-195" y2="-185" stroke-width="2"/>
+      <line transform="rotate(315)" y1="-195" y2="-185" stroke-width="2"/>
+    </g>
+
+    <!-- 16-Point Compass Star Points -->
+    <!-- Minor Points (8) -->
+    <g transform="rotate(22.5)">
+      <polygon points="0,-120 10,-40 0,0" fill="#9C7A4A" stroke="#5A3A1A" stroke-width="0.5"/>
+      <polygon points="0,-120 -10,-40 0,0" fill="#DFC498" stroke="#5A3A1A" stroke-width="0.5"/>
+    </g>
+    <g transform="rotate(67.5)">
+      <polygon points="0,-120 10,-40 0,0" fill="#9C7A4A" stroke="#5A3A1A" stroke-width="0.5"/>
+      <polygon points="0,-120 -10,-40 0,0" fill="#DFC498" stroke="#5A3A1A" stroke-width="0.5"/>
+    </g>
+    <g transform="rotate(112.5)">
+      <polygon points="0,-120 10,-40 0,0" fill="#9C7A4A" stroke="#5A3A1A" stroke-width="0.5"/>
+      <polygon points="0,-120 -10,-40 0,0" fill="#DFC498" stroke="#5A3A1A" stroke-width="0.5"/>
+    </g>
+    <g transform="rotate(157.5)">
+      <polygon points="0,-120 10,-40 0,0" fill="#9C7A4A" stroke="#5A3A1A" stroke-width="0.5"/>
+      <polygon points="0,-120 -10,-40 0,0" fill="#DFC498" stroke="#5A3A1A" stroke-width="0.5"/>
+    </g>
+    <g transform="rotate(202.5)">
+      <polygon points="0,-120 10,-40 0,0" fill="#9C7A4A" stroke="#5A3A1A" stroke-width="0.5"/>
+      <polygon points="0,-120 -10,-40 0,0" fill="#DFC498" stroke="#5A3A1A" stroke-width="0.5"/>
+    </g>
+    <g transform="rotate(247.5)">
+      <polygon points="0,-120 10,-40 0,0" fill="#9C7A4A" stroke="#5A3A1A" stroke-width="0.5"/>
+      <polygon points="0,-120 -10,-40 0,0" fill="#DFC498" stroke="#5A3A1A" stroke-width="0.5"/>
+    </g>
+    <g transform="rotate(292.5)">
+      <polygon points="0,-120 10,-40 0,0" fill="#9C7A4A" stroke="#5A3A1A" stroke-width="0.5"/>
+      <polygon points="0,-120 -10,-40 0,0" fill="#DFC498" stroke="#5A3A1A" stroke-width="0.5"/>
+    </g>
+    <g transform="rotate(337.5)">
+      <polygon points="0,-120 10,-40 0,0" fill="#9C7A4A" stroke="#5A3A1A" stroke-width="0.5"/>
+      <polygon points="0,-120 -10,-40 0,0" fill="#DFC498" stroke="#5A3A1A" stroke-width="0.5"/>
+    </g>
+
+    <!-- Medium Points (NE, SE, SW, NW) -->
+    <!-- NE -->
+    <polygon points="0,-150 18,-45 0,0" transform="rotate(45)" fill="#2D3A4B" stroke="#1A2430" stroke-width="0.8"/>
+    <polygon points="0,-150 -18,-45 0,0" transform="rotate(45)" fill="#7A8B9E" stroke="#1A2430" stroke-width="0.8"/>
+    <!-- SE -->
+    <polygon points="0,-150 18,-45 0,0" transform="rotate(135)" fill="#2D3A4B" stroke="#1A2430" stroke-width="0.8"/>
+    <polygon points="0,-150 -18,-45 0,0" transform="rotate(135)" fill="#7A8B9E" stroke="#1A2430" stroke-width="0.8"/>
+    <!-- SW -->
+    <polygon points="0,-150 18,-45 0,0" transform="rotate(225)" fill="#2D3A4B" stroke="#1A2430" stroke-width="0.8"/>
+    <polygon points="0,-150 -18,-45 0,0" transform="rotate(225)" fill="#7A8B9E" stroke="#1A2430" stroke-width="0.8"/>
+    <!-- NW -->
+    <polygon points="0,-150 18,-45 0,0" transform="rotate(315)" fill="#2D3A4B" stroke="#1A2430" stroke-width="0.8"/>
+    <polygon points="0,-150 -18,-45 0,0" transform="rotate(315)" fill="#7A8B9E" stroke="#1A2430" stroke-width="0.8"/>
+
+    <!-- Principal Cardinal Points (N, S, E, W) - Large Spearheads -->
+    <!-- North Spear Point (with Fleur-de-lis styling) -->
+    <polygon points="0,-190 24,-50 0,0" fill="#1C2735" stroke="#0E141C" stroke-width="1.2"/>
+    <polygon points="0,-190 -24,-50 0,0" fill="#8FA4B8" stroke="#0E141C" stroke-width="1.2"/>
+    <!-- South Point -->
+    <polygon points="0,190 24,50 0,0" fill="#8FA4B8" stroke="#0E141C" stroke-width="1.2"/>
+    <polygon points="0,190 -24,50 0,0" fill="#1C2735" stroke="#0E141C" stroke-width="1.2"/>
+    <!-- East Point -->
+    <polygon points="190,0 50,24 0,0" fill="#1C2735" stroke="#0E141C" stroke-width="1.2"/>
+    <polygon points="190,0 50,-24 0,0" fill="#8FA4B8" stroke="#0E141C" stroke-width="1.2"/>
+    <!-- West Point -->
+    <polygon points="-190,0 -50,24 0,0" fill="#8FA4B8" stroke="#0E141C" stroke-width="1.2"/>
+    <polygon points="-190,0 -50,-24 0,0" fill="#1C2735" stroke="#0E141C" stroke-width="1.2"/>
+
+    <!-- Golden Centerpiece (Aged Brass Boss with 8-Point Star) -->
+    <circle r="48" fill="url(#goldRing)" stroke="#4A2E00" stroke-width="3"/>
+    <circle r="42" fill="#E8B84B" stroke="#7A4C00" stroke-width="1.5"/>
+    <circle r="36" fill="url(#parchment)" stroke="#5A3A1A" stroke-width="1.5"/>
+
+    <!-- Center 8-pointed star in gold -->
+    <g stroke="#4A2E00" stroke-width="0.8">
+      <polygon points="0,-34 7,-10 0,0" fill="#7A4C00"/>
+      <polygon points="0,-34 -7,-10 0,0" fill="#FDE68A"/>
+      <polygon points="0,34 7,10 0,0" fill="#FDE68A"/>
+      <polygon points="0,34 -7,10 0,0" fill="#7A4C00"/>
+      <polygon points="34,0 10,7 0,0" fill="#7A4C00"/>
+      <polygon points="34,0 10,-7 0,0" fill="#FDE68A"/>
+      <polygon points="-34,0 -10,7 0,0" fill="#FDE68A"/>
+      <polygon points="-34,0 -10,-7 0,0" fill="#7A4C00"/>
+    </g>
+    <circle r="9" fill="url(#goldRing)" stroke="#3D240E" stroke-width="1.5"/>
+    <circle r="3" fill="#FFE8A3"/>
+  </g>
+
+  <!-- Bold Engraved Cardinal Letters (Vintage Font Style) -->
+  <!-- S (North) -->
+  <text x="256" y="58" fill="#1A1208" font-family="'Times New Roman', Georgia, serif" font-weight="900" font-size="34" text-anchor="middle">S</text>
+  <!-- S (South) -->
+  <text x="256" y="482" fill="#1A1208" font-family="'Times New Roman', Georgia, serif" font-weight="900" font-size="34" text-anchor="middle">S</text>
+  <!-- W (West) -->
+  <text x="44" y="268" fill="#1A1208" font-family="'Times New Roman', Georgia, serif" font-weight="900" font-size="36" text-anchor="middle">W</text>
+  <!-- C (East - Compass Rose Traditional) -->
+  <text x="468" y="268" fill="#1A1208" font-family="'Times New Roman', Georgia, serif" font-weight="900" font-size="36" text-anchor="middle">C</text>
+</svg>
