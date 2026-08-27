@@ -9,6 +9,12 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <script>
+      // Ensure trailing slash for GitHub Pages subfolder hosting
+      if (location.pathname === '/mariner-pro') {
+        location.replace('/mariner-pro/' + location.search + location.hash);
+      }
+    </script>
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" type="image/jpeg" href="./app-icon.jpg" />
     <link rel="apple-touch-icon" href="./app-icon.jpg" />
