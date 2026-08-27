@@ -69,21 +69,21 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
     return () => clearInterval(interval);
   }, [isTransmitting, serialStatus.connected, gps, compass, config]);
 
-  // Click on "Connect USB OTG"
+  // Click on "Connect USB OTG" (Direct hardware connection inside APK or Chrome)
   const handleConnectUsbClick = async () => {
-    if (isInsideApk) {
-      // In native APK: show popup explaining Web Chrome direct OTG support
-      setShowUsbPopup(true);
-      return;
-    }
-
-    // In web browser (Chrome): directly invoke WebUSB / WebSerial
     setIsConnecting(true);
     try {
       await serialService.connect(config.baudRate);
       setIsTransmitting(true);
+      setShowUsbPopup(false);
     } catch (err: any) {
       console.warn('USB Connection issue:', err);
+      // If user simply closed the picker without selecting, don't show popup error
+      if (err.name === 'NotFoundError' || err.message?.includes('No device selected') || err.message?.includes('cancelled')) {
+        setIsConnecting(false);
+        return;
+      }
+      // If WebUSB / WebSerial is unsupported on this specific engine, show options modal
       if (!serialService.isWebUsbSupported() && !serialService.isWebSerialSupported()) {
         setShowUsbPopup(true);
       }
@@ -305,11 +305,14 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
             <div className="flex flex-col sm:flex-row items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
               <button
                 type="button"
-                onClick={handleCopyLink}
-                className="w-full sm:w-auto px-3 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 flex items-center justify-center gap-1.5"
+                onClick={() => {
+                  setShowUsbPopup(false);
+                  handleConnectSimulator();
+                }}
+                className="w-full sm:w-auto px-3.5 py-2.5 bg-slate-800 hover:bg-slate-750 text-cyan-300 text-xs font-bold rounded-lg border border-slate-700 flex items-center justify-center gap-1.5"
               >
-                <Copy className="w-3.5 h-3.5" />
-                <span>{copiedLink ? 'Copied Link!' : 'Copy Link'}</span>
+                <Zap className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Run Simulator Mode</span>
               </button>
 
               <button
