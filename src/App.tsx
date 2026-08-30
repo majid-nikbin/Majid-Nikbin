@@ -1,18 +1,27 @@
 // Mariner Pro Marine Navigation & NMEA Bridge System v1.1.0
 import React, { useState, useEffect, useRef } from 'react';
-import { CompassData, GpsData, HeadingSource, NmeaConfig, SerialPortStatus } from './types';
+import { 
+  CompassData, 
+  GpsData, 
+  HeadingSource, 
+  NmeaConfig, 
+  SerialPortStatus, 
+  NavigationSession 
+} from './types';
 import { useSensors } from './hooks/useSensors';
 import { serialService } from './services/serialService';
 import { getLicenseStatus, OFFICIAL_SUPPORT_EMAIL } from './services/licenseService';
 import { Header, ActiveTab } from './components/Header';
 import { CompassDial } from './components/CompassDial';
 import { MarineGpsData } from './components/MarineGpsData';
+import { RouteNavigationTab } from './components/RouteNavigationTab';
 import { NmeaTransmitter } from './components/NmeaTransmitter';
 import { NmeaMonitor } from './components/NmeaMonitor';
 import { UsbDriverGuide } from './components/UsbDriverGuide';
 import { KeyGenTab } from './components/KeyGenTab';
 import { ActivationModal } from './components/ActivationModal';
-import { formatMarineDDM } from './utils/geo';
+import { formatMarineDDM, formatHeadingDeg } from './utils/geo';
+import { Navigation, ArrowRight } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('nav');
@@ -21,6 +30,20 @@ export default function App() {
   const [licenseStatus, setLicenseStatus] = useState(() => getLicenseStatus());
   const [showAboutModal, setShowAboutModal] = useState<boolean>(false);
   const [exitToast, setExitToast] = useState<string | null>(null);
+
+  // Active navigation session state tracked at root level
+  const [activeNavSession, setActiveNavSession] = useState<NavigationSession | null>(() => {
+    try {
+      const saved = localStorage.getItem('mariner_pro_active_nav_session_v2');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object' && parsed.isNavigating) {
+          return parsed;
+        }
+      }
+    } catch (e) {}
+    return null;
+  });
 
   const lastBackPressTime = useRef<number>(0);
   const activeTabRef = useRef<ActiveTab>(activeTab);
@@ -34,9 +57,22 @@ export default function App() {
     showAboutModalRef.current = showAboutModal;
   }, [showAboutModal]);
 
-  // Handle Android Hardware Back Button (Capacitor Native)
+  // Handle Android Hardware Back Button (Capacitor Native) & Browser PopState Double-Back Protection
   useEffect(() => {
     let backListener: any = null;
+
+    const triggerDoubleBackNotice = () => {
+      const now = Date.now();
+      if (now - lastBackPressTime.current < 2000) {
+        return true; // allow exit
+      } else {
+        lastBackPressTime.current = now;
+        const navNote = activeNavSession?.isNavigating ? ' (Navigation session active)' : '';
+        setExitToast(`Press BACK again to exit Mariner Pro${navNote}`);
+        setTimeout(() => setExitToast(null), 2500);
+        return false;
+      }
+    };
 
     const attachCapacitorBackButton = async () => {
       const cap = (window as any).Capacitor;
@@ -46,13 +82,9 @@ export default function App() {
             if (showAboutModalRef.current) {
               setShowAboutModal(false);
             } else {
-              const now = Date.now();
-              if (now - lastBackPressTime.current < 2000) {
+              const shouldExit = triggerDoubleBackNotice();
+              if (shouldExit) {
                 cap.Plugins.App.exitApp();
-              } else {
-                lastBackPressTime.current = now;
-                setExitToast('Press BACK again to exit Mariner Pro');
-                setTimeout(() => setExitToast(null), 2000);
               }
             }
           });
@@ -64,12 +96,30 @@ export default function App() {
 
     attachCapacitorBackButton();
 
+    // Browser History PopState Double-Back Protection
+    window.history.pushState({ app: 'mariner_pro' }, '');
+    const handlePopState = () => {
+      if (showAboutModalRef.current) {
+        setShowAboutModal(false);
+        window.history.pushState({ app: 'mariner_pro' }, '');
+        return;
+      }
+
+      const shouldExit = triggerDoubleBackNotice();
+      if (!shouldExit) {
+        window.history.pushState({ app: 'mariner_pro' }, '');
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
     return () => {
       if (backListener && typeof backListener.remove === 'function') {
         backListener.remove();
       }
+      window.removeEventListener('popstate', handlePopState);
     };
-  }, []);
+  }, [activeNavSession]);
 
   // Default NMEA Output Configuration
   const [nmeaConfig, setNmeaConfig] = useState<NmeaConfig>({
@@ -158,57 +208,113 @@ export default function App() {
         onToggleNightMode={() => setIsNightMode(!isNightMode)}
         showAboutModal={showAboutModal}
         setShowAboutModal={setShowAboutModal}
+        isNavigating={activeNavSession?.isNavigating || false}
       />
 
       {/* Main Content Area - Fully Scrollable */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 flex flex-col gap-6 overflow-y-auto">
-        {/* Tab 1: Navigation View */}
-        {activeTab === 'nav' && (
-          <div className="flex flex-col gap-6">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-              {/* Compass Dial Section */}
-              <div className="lg:col-span-5 w-full">
-                <CompassDial
-                  compass={compass}
-                  gps={gps}
-                  headingSource={headingSource}
-                  onSourceChange={setHeadingSource}
-                  hasRealCompass={hasRealCompass}
-                  hasRealGps={hasRealGps}
-                  isManualHeading={isManualHeading}
-                  onManualHeadingChange={setHeadingManual}
-                  onResetManual={resetToSensorHeading}
-                  onRequestPermission={requestCompassPermission}
-                  dampingMode={dampingMode}
-                  onDampingChange={setDampingMode}
-                  displayRefreshRate={displayRefreshRate}
-                  onRefreshRateChange={setDisplayRefreshRate}
-                  headingCorrection={nmeaConfig.headingCorrection || 0}
-                  onHeadingCorrectionChange={(offset) => setNmeaConfig((prev) => ({ ...prev, headingCorrection: offset }))}
-                  isNightMode={isNightMode}
-                />
+        {/* Active Background Navigation Status Banner (When on other tabs) */}
+        {activeNavSession && activeNavSession.isNavigating && activeTab !== 'route' && (
+          <div className={`p-3.5 sm:p-4 rounded-2xl border flex flex-wrap items-center justify-between gap-3 shadow-xl backdrop-blur-md transition-all ${
+            isNightMode 
+              ? 'bg-red-950/90 border-red-800 text-red-100' 
+              : 'bg-slate-900/95 border-amber-500/60 text-slate-100 shadow-amber-950/30'
+          }`}>
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-400 flex items-center justify-center text-amber-400 shrink-0">
+                <Navigation className="w-5 h-5 animate-pulse" />
               </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] uppercase font-bold tracking-widest text-amber-400">
+                    VOYAGE NAVIGATION RUNNING IN BACKGROUND
+                  </span>
+                  <span className="px-1.5 py-0.2 rounded bg-amber-950 border border-amber-500/50 text-[9px] font-mono text-amber-300">
+                    ACTIVE
+                  </span>
+                </div>
+                <div className="text-sm sm:text-base font-bold font-mono text-white flex flex-wrap items-center gap-2">
+                  <span>Destination:</span>
+                  <span className="text-amber-300 font-bold underline underline-offset-2">
+                    {activeNavSession.targetWaypoint?.name || 'Active Waypoint'}
+                  </span>
+                  {activeNavSession.distanceNm !== null && (
+                    <span className="text-xs text-slate-300 font-normal font-mono">
+                      • {activeNavSession.distanceNm.toFixed(1)} NM • BRG {formatHeadingDeg(activeNavSession.bearingDeg)}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
 
-              {/* Lower/Right: Marine GNSS / GPS Position Cluster */}
-              <div className="lg:col-span-7 w-full flex flex-col gap-6">
-                <MarineGpsData
-                  gps={gps}
-                  magVariation={nmeaConfig.magVariation}
-                  hasRealGps={hasRealGps}
-                  isGpsAcquiring={isGpsAcquiring}
-                  gpsError={gpsError}
-                  gpsPermissionState={gpsPermissionState}
-                  onRequestGps={requestGpsFix}
-                  onSetManualGps={handleSetManualGps}
-                  isNightMode={isNightMode}
-                />
-              </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveTab('route')}
+                className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-black font-mono flex items-center gap-2 transition-all shadow-md shadow-cyan-950"
+              >
+                <span>View Route & Chart</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
             </div>
           </div>
         )}
 
-        {/* Tab 2: NMEA 0183 Output */}
-        {activeTab === 'transmit' && (
+        {/* Tab 1: Navigation View */}
+        <div className={activeTab === 'nav' ? 'flex flex-col gap-6 animate-fadeIn' : 'hidden'}>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Compass Dial Section */}
+            <div className="lg:col-span-5 w-full">
+              <CompassDial
+                compass={compass}
+                gps={gps}
+                headingSource={headingSource}
+                onSourceChange={setHeadingSource}
+                hasRealCompass={hasRealCompass}
+                hasRealGps={hasRealGps}
+                isManualHeading={isManualHeading}
+                onManualHeadingChange={setHeadingManual}
+                onResetManual={resetToSensorHeading}
+                onRequestPermission={requestCompassPermission}
+                dampingMode={dampingMode}
+                onDampingChange={setDampingMode}
+                displayRefreshRate={displayRefreshRate}
+                onRefreshRateChange={setDisplayRefreshRate}
+                headingCorrection={nmeaConfig.headingCorrection || 0}
+                onHeadingCorrectionChange={(offset) => setNmeaConfig((prev) => ({ ...prev, headingCorrection: offset }))}
+                isNightMode={isNightMode}
+              />
+            </div>
+
+            {/* Lower/Right: Marine GNSS / GPS Position Cluster */}
+            <div className="lg:col-span-7 w-full flex flex-col gap-6">
+              <MarineGpsData
+                gps={gps}
+                magVariation={nmeaConfig.magVariation}
+                hasRealGps={hasRealGps}
+                isGpsAcquiring={isGpsAcquiring}
+                gpsError={gpsError}
+                gpsPermissionState={gpsPermissionState}
+                onRequestGps={requestGpsFix}
+                onSetManualGps={handleSetManualGps}
+                isNightMode={isNightMode}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Tab 2: Marine Route & Waypoint Navigation & Offline Chart */}
+        <div className={activeTab === 'route' ? 'flex flex-col gap-6 animate-fadeIn' : 'hidden'}>
+          <RouteNavigationTab
+            gps={gps}
+            compass={compass}
+            isNightMode={isNightMode}
+            onNavSessionChange={setActiveNavSession}
+          />
+        </div>
+
+        {/* Tab 3: NMEA 0183 Output */}
+        <div className={activeTab === 'transmit' ? 'flex flex-col gap-6 animate-fadeIn' : 'hidden'}>
           <NmeaTransmitter
             gps={gps}
             compass={compass}
@@ -217,25 +323,25 @@ export default function App() {
             serialStatus={serialStatus}
             isNightMode={isNightMode}
           />
-        )}
+        </div>
 
         {/* Tab 3: NMEA 0183 Monitor */}
-        {activeTab === 'monitor' && (
+        <div className={activeTab === 'monitor' ? 'flex flex-col gap-6 animate-fadeIn' : 'hidden'}>
           <NmeaMonitor
             serialStatus={serialStatus}
             isNightMode={isNightMode}
           />
-        )}
+        </div>
 
         {/* Tab 4: USB OTG & Drivers Guide */}
-        {activeTab === 'drivers' && (
+        <div className={activeTab === 'drivers' ? 'flex flex-col gap-6 animate-fadeIn' : 'hidden'}>
           <UsbDriverGuide isNightMode={isNightMode} />
-        )}
+        </div>
 
         {/* Tab 5: Developer Key Generator */}
-        {activeTab === 'keygen' && (
+        <div className={activeTab === 'keygen' ? 'flex flex-col gap-6 animate-fadeIn' : 'hidden'}>
           <KeyGenTab isNightMode={isNightMode} />
-        )}
+        </div>
       </main>
 
       {/* Docked Marine Console Footer Bar */}

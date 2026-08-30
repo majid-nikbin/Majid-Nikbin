@@ -88,3 +88,49 @@ export interface ParsedNmeaData {
   altitudeMeters?: number;
   raw: string;
 }
+
+export interface Waypoint {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  description?: string;
+  order: number;
+  createdAt: number;
+}
+
+export interface MarineRoute {
+  id: string;
+  name: string;
+  description?: string;
+  color: string;
+  waypoints: Waypoint[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface NavigationSession {
+  isNavigating: boolean;
+  isRouteNavigation?: boolean; // true if navigating the entire route in sequence
+  routeId: string | null;
+  waypointId: string | null;
+  targetWaypoint: Waypoint | null;
+  previousWaypoint: Waypoint | null;
+  currentLegIndex?: number; // 0-based index of active target waypoint in the route
+  totalLegs?: number; // total number of waypoints in route
+  routeRemainingDistanceNm?: number | null; // distance through current waypoint + subsequent legs
+  routeTotalDistanceNm?: number | null; // total distance of whole route
+  autoAdvanceEnabled?: boolean; // automatically advance to next waypoint upon arrival
+  arrivalRadiusNm?: number; // threshold in NM to trigger arrival (default: 0.08 NM / ~150m)
+  distanceNm: number | null;
+  distanceKm: number | null;
+  bearingDeg: number | null;
+  xteNm: number | null; // Cross Track Error
+  sogKnots: number | null;
+  cogDeg: number | null;
+  ttgSeconds: number | null; // Time To Go for current leg
+  etaTimestamp: number | null; // Estimated Arrival Unix ms for current leg
+  routeEtaTimestamp?: number | null; // Estimated Arrival Unix ms for whole route destination
+  startedAt: number | null;
+}
+

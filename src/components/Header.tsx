@@ -20,7 +20,8 @@ import {
   Sparkles,
   Eye,
   EyeOff,
-  Download
+  Download,
+  Route as RouteIcon
 } from 'lucide-react';
 import { SerialPortStatus } from '../types';
 import { 
@@ -31,7 +32,7 @@ import {
   DEVELOPER_PASSCODE
 } from '../services/licenseService';
 
-export type ActiveTab = 'nav' | 'transmit' | 'monitor' | 'drivers' | 'keygen';
+export type ActiveTab = 'nav' | 'route' | 'transmit' | 'monitor' | 'drivers' | 'keygen';
 
 interface HeaderProps {
   activeTab: ActiveTab;
@@ -43,6 +44,7 @@ interface HeaderProps {
   onToggleNightMode: () => void;
   showAboutModal?: boolean;
   setShowAboutModal?: (show: boolean) => void;
+  isNavigating?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -55,6 +57,7 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleNightMode,
   showAboutModal: externalShowAboutModal,
   setShowAboutModal: externalSetShowAboutModal,
+  isNavigating = false,
 }) => {
   const [wakeLockActive, setWakeLockActive] = useState<boolean>(false);
   const [wakeLockSentinel, setWakeLockSentinel] = useState<any>(null);
@@ -244,13 +247,13 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Center: Navigation Tabs (Fixed 3-column grid on mobile so all 3 tabs fit 100% in screen width) */}
-        <nav className="grid grid-cols-3 md:flex items-center gap-1 sm:gap-1.5 bg-slate-900/90 p-1 rounded-xl border border-slate-800 w-full md:w-auto">
+        {/* Center: Navigation Tabs (Responsive grid on mobile so all tabs fit seamlessly) */}
+        <nav className="grid grid-cols-4 md:flex items-center gap-1 sm:gap-1.5 bg-slate-900/90 p-1 rounded-xl border border-slate-800 w-full md:w-auto">
           <button
             id="tab-btn-nav"
             type="button"
             onClick={() => onTabChange('nav')}
-            className={`flex items-center justify-center gap-1 sm:gap-2 px-1.5 sm:px-4 py-2 rounded-lg text-[11px] sm:text-xs font-bold font-mono transition-all select-none min-w-0 ${
+            className={`flex items-center justify-center gap-1 sm:gap-2 px-1.5 sm:px-3.5 py-2 rounded-lg text-[11px] sm:text-xs font-bold font-mono transition-all select-none min-w-0 ${
               activeTab === 'nav'
                 ? isNightMode
                   ? 'bg-red-900/80 text-white border border-red-700 shadow-sm'
@@ -259,14 +262,35 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             <Compass className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Navigation</span>
+            <span className="truncate">Nav</span>
+          </button>
+
+          <button
+            id="tab-btn-route"
+            type="button"
+            onClick={() => onTabChange('route')}
+            className={`relative flex items-center justify-center gap-1 sm:gap-2 px-1.5 sm:px-3.5 py-2 rounded-lg text-[11px] sm:text-xs font-bold font-mono transition-all select-none min-w-0 ${
+              activeTab === 'route'
+                ? isNightMode
+                  ? 'bg-red-900/80 text-white border border-red-700 shadow-sm'
+                  : 'bg-cyan-500 text-slate-950 shadow-md shadow-cyan-950 font-black'
+                : isNavigating
+                ? 'bg-amber-950/60 border border-amber-500/50 text-amber-300 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+            }`}
+          >
+            <RouteIcon className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Route</span>
+            {isNavigating && (
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping absolute -top-0.5 -right-0.5" />
+            )}
           </button>
 
           <button
             id="tab-btn-transmit"
             type="button"
             onClick={() => onTabChange('transmit')}
-            className={`flex items-center justify-center gap-1 sm:gap-2 px-1.5 sm:px-4 py-2 rounded-lg text-[11px] sm:text-xs font-bold font-mono transition-all select-none min-w-0 ${
+            className={`flex items-center justify-center gap-1 sm:gap-2 px-1.5 sm:px-3.5 py-2 rounded-lg text-[11px] sm:text-xs font-bold font-mono transition-all select-none min-w-0 ${
               activeTab === 'transmit'
                 ? isNightMode
                   ? 'bg-red-900/80 text-white border border-red-700 shadow-sm'
@@ -282,7 +306,7 @@ export const Header: React.FC<HeaderProps> = ({
             id="tab-btn-monitor"
             type="button"
             onClick={() => onTabChange('monitor')}
-            className={`flex items-center justify-center gap-1 sm:gap-2 px-1.5 sm:px-4 py-2 rounded-lg text-[11px] sm:text-xs font-bold font-mono transition-all select-none min-w-0 ${
+            className={`flex items-center justify-center gap-1 sm:gap-2 px-1.5 sm:px-3.5 py-2 rounded-lg text-[11px] sm:text-xs font-bold font-mono transition-all select-none min-w-0 ${
               activeTab === 'monitor'
                 ? isNightMode
                   ? 'bg-red-900/80 text-white border border-red-700 shadow-sm'
