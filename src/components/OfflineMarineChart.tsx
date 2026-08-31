@@ -58,7 +58,9 @@ import {
 import {
   LiveTileProvider,
   LIVE_TILE_PROVIDERS,
-  renderLiveMapTiles
+  renderLiveMapTiles,
+  getSavedCustomTileUrl,
+  saveCustomTileUrl
 } from '../utils/marineTileLoader';
 
 interface OfflineMarineChartProps {
@@ -106,7 +108,8 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
 
   // Map Mode: Offline Marine Vector vs Online Live Web Tiles
   const [mapMode, setMapMode] = useState<'offline' | 'live'>('offline');
-  const [liveProvider, setLiveProvider] = useState<LiveTileProvider>('esri_ocean');
+  const [liveProvider, setLiveProvider] = useState<LiveTileProvider>('google_hybrid');
+  const [customTileUrlInput, setCustomTileUrlInput] = useState<string>(() => getSavedCustomTileUrl());
   const [showLiveSeamarks, setShowLiveSeamarks] = useState<boolean>(true);
   const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
@@ -2108,23 +2111,48 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
 
             {/* Provider List when Live */}
             {mapMode === 'live' && (
-              <div className="mt-2 flex flex-col gap-1">
+              <div className="mt-2 flex flex-col gap-1.5">
                 <span className="text-[9px] text-slate-400 uppercase font-bold">Online Map Provider:</span>
                 {LIVE_TILE_PROVIDERS.map((prov) => (
                   <button
                     key={prov.id}
                     type="button"
                     onClick={() => setLiveProvider(prov.id)}
-                    className={`px-2.5 py-1.5 rounded-lg text-left transition-all text-[11px] flex flex-col ${
+                    className={`px-2.5 py-1.5 rounded-lg text-left transition-all text-[11px] flex flex-col gap-0.5 ${
                       liveProvider === prov.id
-                        ? 'bg-slate-800 border border-cyan-400 text-cyan-300'
+                        ? 'bg-slate-800 border border-cyan-400 text-cyan-300 shadow-sm'
                         : 'bg-slate-950/60 border border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
                     }`}
                   >
-                    <span className="font-bold text-white">{prov.name}</span>
-                    <span className="text-[9px] text-slate-400">{prov.description}</span>
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="font-bold text-white">{prov.name}</span>
+                      {prov.badge && (
+                        <span className="text-[8px] px-1.5 py-0.2 bg-emerald-950/90 text-emerald-300 border border-emerald-600/50 rounded font-bold">
+                          {prov.badge}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[9px] text-slate-400 leading-tight">{prov.description}</span>
                   </button>
                 ))}
+
+                {/* Custom URL Input if Custom Provider is selected */}
+                {liveProvider === 'custom' && (
+                  <div className="p-2 rounded-lg bg-slate-950 border border-cyan-500/40 flex flex-col gap-1.5 mt-1">
+                    <span className="text-[9px] font-bold text-cyan-300">Custom Tile URL Template:</span>
+                    <input
+                      type="text"
+                      value={customTileUrlInput}
+                      onChange={(e) => {
+                        setCustomTileUrlInput(e.target.value);
+                        saveCustomTileUrl(e.target.value);
+                      }}
+                      placeholder="https://tile.example.com/{z}/{x}/{y}.png"
+                      className="px-2 py-1 bg-slate-900 border border-slate-700 rounded text-[10px] text-white font-mono focus:border-cyan-400 focus:outline-none"
+                    />
+                    <span className="text-[8px] text-slate-500">Supports variables: &#123;z&#125;, &#123;x&#125;, &#123;y&#125;, &#123;s&#125;</span>
+                  </div>
+                )}
 
                 <label className="flex items-center justify-between gap-2 mt-1 cursor-pointer pt-1 border-t border-slate-800 text-[11px] hover:text-cyan-400">
                   <span className="flex items-center gap-1.5">

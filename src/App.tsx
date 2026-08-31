@@ -10,7 +10,7 @@ import {
 } from './types';
 import { useSensors } from './hooks/useSensors';
 import { serialService } from './services/serialService';
-import { getLicenseStatus, OFFICIAL_SUPPORT_EMAIL } from './services/licenseService';
+import { getLicenseStatus, syncTrialWithServer, OFFICIAL_SUPPORT_EMAIL } from './services/licenseService';
 import { Header, ActiveTab } from './components/Header';
 import { CompassDial } from './components/CompassDial';
 import { MarineGpsData } from './components/MarineGpsData';
@@ -56,6 +56,22 @@ export default function App() {
   useEffect(() => {
     showAboutModalRef.current = showAboutModal;
   }, [showAboutModal]);
+
+  // Synchronize trial days and license validation with server and multi-tier store
+  useEffect(() => {
+    syncTrialWithServer((updated) => {
+      setLicenseStatus(updated);
+    });
+
+    const handleOnline = () => {
+      syncTrialWithServer((updated) => {
+        setLicenseStatus(updated);
+      });
+    };
+
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, []);
 
   // Handle Android Hardware Back Button (Capacitor Native) & Browser PopState Double-Back Protection
   useEffect(() => {
