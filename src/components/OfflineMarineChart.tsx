@@ -1,4 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Plus, 
   Minus, 
@@ -8,6 +9,7 @@ import {
   Layers, 
   Navigation2, 
   LocateFixed,
+  Maximize,
   Maximize2,
   Minimize2,
   Waves,
@@ -160,57 +162,7 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
     };
   }, []);
 
-  // Sync with native fullscreen API changes if triggered externally (e.g. Android back button or Esc)
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      const doc = document as any;
-      const isNativeFs = !!(
-        doc.fullscreenElement ||
-        doc.webkitFullscreenElement ||
-        doc.mozFullScreenElement ||
-        doc.msFullscreenElement
-      );
-      if (!isNativeFs && isFullscreen) {
-        setIsFullscreen(false);
-      }
-    };
-
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
-    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
-    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
-
-    return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
-      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
-      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
-    };
-  }, [isFullscreen]);
-
-  // Body & HTML Scroll Lock during Fullscreen to guarantee zero page shifting on mobile
-  useEffect(() => {
-    if (isFullscreen) {
-      const prevBodyOverflow = document.body.style.overflow;
-      const prevBodyTouchAction = document.body.style.touchAction;
-      const prevHtmlOverflow = document.documentElement.style.overflow;
-      const prevHtmlTouchAction = document.documentElement.style.touchAction;
-
-      document.body.style.overflow = 'hidden';
-      document.body.style.touchAction = 'none';
-      document.documentElement.style.overflow = 'hidden';
-      document.documentElement.style.touchAction = 'none';
-
-      return () => {
-        document.body.style.overflow = prevBodyOverflow;
-        document.body.style.touchAction = prevBodyTouchAction;
-        document.documentElement.style.overflow = prevHtmlOverflow;
-        document.documentElement.style.touchAction = prevHtmlTouchAction;
-      };
-    }
-  }, [isFullscreen]);
-
-  // Handle Fullscreen Toggle using pure CSS full-viewport overlay (Zero browser security toast/watermarks)
+  // Handle Fullscreen Toggle using pure CSS full-viewport overlay
   const toggleFullscreen = () => {
     setIsFullscreen((prev) => !prev);
   };
@@ -277,8 +229,11 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const width = canvas.width / (window.devicePixelRatio || 1);
-    const height = canvas.height / (window.devicePixelRatio || 1);
+    const dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const width = canvas.width / dpr;
+    const height = canvas.height / dpr;
 
     animPhaseRef.current = (animPhaseRef.current + 0.04) % (Math.PI * 2);
     const animPhase = animPhaseRef.current;
@@ -1350,21 +1305,36 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
     const handleResize = () => {
       const canvas = canvasRef.current;
       const container = containerRef.current;
-      if (!canvas || !container) return;
+      if (!canvas) return;
 
       const dpr = window.devicePixelRatio || 1;
-      const rect = container.getBoundingClientRect();
+      let displayW = 0;
+      let displayH = 0;
 
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
+      if (isFullscreen) {
+        displayW = window.innerWidth || document.documentElement.clientWidth || 800;
+        displayH = window.innerHeight || document.documentElement.clientHeight || 600;
+      } else if (container) {
+        const rect = container.getBoundingClientRect();
+        displayW = rect.width;
+        displayH = rect.height;
+      }
 
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.scale(dpr, dpr);
+      if (displayW <= 0) displayW = container?.clientWidth || window.innerWidth || 800;
+      if (displayH <= 0) displayH = container?.clientHeight || 500;
+
+      const targetW = Math.max(200, Math.round(displayW * dpr));
+      const targetH = Math.max(200, Math.round(displayH * dpr));
+
+      if (canvas.width !== targetW || canvas.height !== targetH) {
+        canvas.width = targetW;
+        canvas.height = targetH;
       }
     };
 
     handleResize();
+    const rafId = requestAnimationFrame(handleResize);
+    const timer = setTimeout(handleResize, 60);
 
     const resizeObserver = new ResizeObserver(() => {
       handleResize();
@@ -1377,6 +1347,8 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
     window.addEventListener('resize', handleResize);
 
     return () => {
+      cancelAnimationFrame(rafId);
+      clearTimeout(timer);
       resizeObserver.disconnect();
       window.removeEventListener('resize', handleResize);
     };
@@ -1621,7 +1593,56 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
     }
   };
 
-  // Center buttons
+  // Center buttons & auto-fit
+  const fitAllInView = useCallback(() => {
+    const container = containerRef.current;
+    const width = container ? container.getBoundingClientRect().width : window.innerWidth;
+    const height = container ? container.getBoundingClientRect().height : window.innerHeight;
+
+    let points: [number, number][] = [];
+    if (activeRoute && activeRoute.waypoints.length > 0) {
+      points = activeRoute.waypoints.map(wp => [wp.longitude, wp.latitude]);
+    }
+
+    if (vesselLat && vesselLon) {
+      points.push([vesselLon, vesselLat]);
+    }
+
+    if (points.length === 0) {
+      setCenter([vesselLon || 51.5, vesselLat || 25.3]);
+      setZoom(45);
+      return;
+    }
+
+    if (points.length === 1) {
+      setCenter([points[0][0], points[0][1]]);
+      setZoom(55);
+      return;
+    }
+
+    const minLon = Math.min(...points.map(p => p[0]));
+    const maxLon = Math.max(...points.map(p => p[0]));
+    const minLat = Math.min(...points.map(p => p[1]));
+    const maxLat = Math.max(...points.map(p => p[1]));
+
+    const midLon = (minLon + maxLon) / 2;
+    const midLat = (minLat + maxLat) / 2;
+    setCenter([midLon, midLat]);
+    setAutoFollowVessel(false);
+
+    const dLon = Math.max(0.02, maxLon - minLon);
+    const dLat = Math.max(0.02, maxLat - minLat);
+
+    const availableWidth = Math.max(200, width * 0.72);
+    const availableHeight = Math.max(200, height * 0.65);
+
+    const zoomX = availableWidth / (dLon * 10);
+    const zoomY = availableHeight / (dLat * 10);
+    const calculatedZoom = Math.max(8, Math.min(220, Math.min(zoomX, zoomY)));
+
+    setZoom(calculatedZoom);
+  }, [activeRoute, vesselLat, vesselLon]);
+
   const centerOnVessel = () => {
     setCenter([vesselLon, vesselLat]);
     setAutoFollowVessel(true);
@@ -1630,12 +1651,7 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
 
   const centerOnRoute = () => {
     if (!activeRoute || activeRoute.waypoints.length === 0) return;
-    const wps = activeRoute.waypoints;
-    const avgLat = wps.reduce((acc, wp) => acc + wp.latitude, 0) / wps.length;
-    const avgLon = wps.reduce((acc, wp) => acc + wp.longitude, 0) / wps.length;
-    setCenter([avgLon, avgLat]);
-    setAutoFollowVessel(false);
-    setZoom(60);
+    fitAllInView();
   };
 
   const centerOnCourse = () => {
@@ -1659,14 +1675,30 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
   const currentHeading = compass.trueHeading || compass.magneticHeading || gps.heading || 0;
   const currentEta = navigationSession.etaTimestamp ? formatEta(navigationSession.etaTimestamp) : '---';
 
-  return (
+  const chartContent = (
     <div 
       ref={containerRef} 
-      style={isFullscreen ? { touchAction: 'none' } : undefined}
-      className={`relative w-full select-none transition-all ${
+      id="marine-vector-chart-container"
+      style={
         isFullscreen
-          ? 'fixed inset-0 z-[999999] w-screen h-screen min-w-full min-h-full rounded-none border-none bg-slate-950 flex flex-col overflow-hidden m-0 p-0 touch-none overscroll-none'
-          : `h-[460px] sm:h-[560px] lg:h-[640px] rounded-2xl overflow-hidden border ${
+          ? {
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              width: '100vw',
+              height: '100vh',
+              zIndex: 999999,
+              touchAction: 'none',
+              backgroundColor: isNightMode ? '#090505' : '#020617',
+            }
+          : undefined
+      }
+      className={`select-none ${
+        isFullscreen
+          ? 'fixed inset-0 z-[999999] w-screen h-screen min-w-full min-h-full rounded-none border-none flex flex-col overflow-hidden m-0 p-0'
+          : `relative w-full h-[460px] sm:h-[560px] lg:h-[640px] rounded-2xl overflow-hidden border ${
               isNightMode ? 'bg-[#090505] border-red-900/60' : 'bg-slate-950 border-slate-800'
             }`
       }`}
@@ -1674,134 +1706,118 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
       {/* Canvas Layer - Edge to Edge in Fullscreen with Native Touch Panning */}
       <canvas
         ref={canvasRef}
-        style={isFullscreen ? { touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' } : { userSelect: 'none', WebkitUserSelect: 'none' }}
+        style={isFullscreen ? { touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none', width: '100%', height: '100%' } : { userSelect: 'none', WebkitUserSelect: 'none' }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onWheel={handleWheel}
         onClick={handleCanvasClick}
-        className={`w-full ${isFullscreen ? 'absolute inset-0 h-full z-10 touch-none overscroll-none' : 'h-full'} block select-none ${
+        className={`w-full h-full block select-none ${
           isAddWaypointMode ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
         }`}
       />
 
-      {/* FULL SCREEN FLOATING HIGH-CONTRAST MARINE NAVIGATION HUD */}
+      {/* FULL SCREEN COMPACT HIGH-CONTRAST MARINE NAVIGATION HUD */}
       {isFullscreen && (
-        <div className="absolute top-2 left-2 right-2 z-30 pointer-events-none flex flex-wrap items-center justify-between gap-2">
-          {/* Left / Center Cluster: Real-Time Navigation Instruments (Speed, Heading, ETA, Distance) */}
-          <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 sm:gap-2 font-mono">
+        <div className="absolute top-2 sm:top-3 left-2 sm:left-4 right-2 sm:right-4 z-30 pointer-events-none flex items-center justify-between gap-1.5 sm:gap-2">
+          {/* Left Cluster: Compact Marine HUD Readouts */}
+          <div className="pointer-events-auto flex items-center gap-1 sm:gap-1.5 font-mono overflow-x-auto no-scrollbar py-0.5 max-w-[calc(100vw-140px)] sm:max-w-none">
             {/* Vessel Speed (SOG) */}
-            <div className={`px-2.5 sm:px-3 py-1.5 rounded-xl border backdrop-blur-md flex items-center gap-2 shadow-2xl ${
+            <div className={`px-2 py-1 rounded-lg border backdrop-blur-md flex items-center gap-1.5 shadow-lg shrink-0 ${
               isNightMode ? 'bg-red-950/90 border-red-800' : 'bg-slate-900/90 border-slate-700'
             }`}>
-              <Gauge className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              <div className="flex flex-col">
-                <span className="text-[8px] sm:text-[9px] text-slate-400 uppercase font-bold tracking-wider">SPEED (SOG)</span>
-                <div className="text-sm sm:text-base font-black text-emerald-400 leading-tight">
-                  {currentSpeedKnots.toFixed(1)} <span className="text-[9px] font-normal text-slate-400">kts</span>
-                </div>
-              </div>
+              <Gauge className="w-3 h-3 text-emerald-400 shrink-0" />
+              <span className="text-[9px] text-slate-400 font-bold hidden xs:inline">SOG</span>
+              <span className="text-xs sm:text-sm font-black text-emerald-400 leading-none">
+                {currentSpeedKnots.toFixed(1)}
+              </span>
+              <span className="text-[9px] text-slate-400 leading-none">kts</span>
             </div>
 
             {/* True Heading (HDT) */}
-            <div className={`px-2.5 sm:px-3 py-1.5 rounded-xl border backdrop-blur-md flex items-center gap-2 shadow-2xl ${
+            <div className={`px-2 py-1 rounded-lg border backdrop-blur-md flex items-center gap-1.5 shadow-lg shrink-0 ${
               isNightMode ? 'bg-red-950/90 border-red-800' : 'bg-slate-900/90 border-slate-700'
             }`}>
-              <Compass className="w-3.5 h-3.5 text-cyan-400 shrink-0 animate-pulse" />
-              <div className="flex flex-col">
-                <span className="text-[8px] sm:text-[9px] text-slate-400 uppercase font-bold tracking-wider">HEADING</span>
-                <div className="text-sm sm:text-base font-black text-cyan-300 leading-tight flex items-baseline gap-1">
-                  <span>{currentHeading.toFixed(1)}°</span>
-                  <span className="text-[9px] text-slate-400 font-bold">
-                    {headingToCardinal(currentHeading)}
-                  </span>
-                </div>
-              </div>
+              <Compass className="w-3 h-3 text-cyan-400 shrink-0" />
+              <span className="text-[9px] text-slate-400 font-bold hidden xs:inline">HDG</span>
+              <span className="text-xs sm:text-sm font-black text-cyan-300 leading-none">
+                {currentHeading.toFixed(0)}°
+              </span>
+              <span className="text-[9px] text-cyan-400 font-bold leading-none">
+                {headingToCardinal(currentHeading)}
+              </span>
             </div>
 
             {/* Target Distance (DIST) */}
             {targetWaypoint && (
-              <div className={`px-2.5 sm:px-3 py-1.5 rounded-xl border backdrop-blur-md flex items-center gap-2 shadow-2xl ${
+              <div className={`px-2 py-1 rounded-lg border backdrop-blur-md flex items-center gap-1.5 shadow-lg shrink-0 ${
                 isNightMode ? 'bg-red-950/90 border-red-800' : 'bg-slate-900/90 border-slate-700'
               }`}>
-                <Navigation className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <div className="flex flex-col">
-                  <span className="text-[8px] sm:text-[9px] text-slate-400 uppercase font-bold tracking-wider">DIST TO DEST</span>
-                  <div className="text-sm sm:text-base font-black text-amber-400 leading-tight">
-                    {directDistanceNm.toFixed(1)} <span className="text-[9px] font-normal text-slate-400">NM</span>
-                  </div>
-                </div>
+                <Navigation className="w-3 h-3 text-amber-400 shrink-0" />
+                <span className="text-[9px] text-slate-400 font-bold hidden xs:inline">DST</span>
+                <span className="text-xs sm:text-sm font-black text-amber-400 leading-none">
+                  {directDistanceNm.toFixed(1)}
+                </span>
+                <span className="text-[9px] text-slate-400 leading-none">NM</span>
               </div>
             )}
 
             {/* Bearing (BRG) */}
             {targetWaypoint && (
-              <div className={`hidden sm:flex px-2.5 sm:px-3 py-1.5 rounded-xl border backdrop-blur-md items-center gap-2 shadow-2xl ${
+              <div className={`hidden md:flex px-2 py-1 rounded-lg border backdrop-blur-md items-center gap-1.5 shadow-lg shrink-0 ${
                 isNightMode ? 'bg-red-950/90 border-red-800' : 'bg-slate-900/90 border-slate-700'
               }`}>
-                <div className="flex flex-col">
-                  <span className="text-[8px] sm:text-[9px] text-slate-400 uppercase font-bold tracking-wider">BEARING</span>
-                  <div className="text-sm sm:text-base font-black text-cyan-300 leading-tight">
-                    {formatHeadingDeg(directBearingDeg)}
-                  </div>
-                </div>
+                <span className="text-[9px] text-slate-400 font-bold">BRG</span>
+                <span className="text-xs sm:text-sm font-black text-cyan-300 leading-none">
+                  {formatHeadingDeg(directBearingDeg)}
+                </span>
               </div>
             )}
 
             {/* ETA */}
             {targetWaypoint && (
-              <div className={`px-2.5 sm:px-3 py-1.5 rounded-xl border backdrop-blur-md flex items-center gap-2 shadow-2xl ${
+              <div className={`hidden sm:flex px-2 py-1 rounded-lg border backdrop-blur-md items-center gap-1.5 shadow-lg shrink-0 ${
                 isNightMode ? 'bg-red-950/90 border-red-800' : 'bg-slate-900/90 border-slate-700'
               }`}>
-                <Clock className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                <div className="flex flex-col">
-                  <span className="text-[8px] sm:text-[9px] text-slate-400 uppercase font-bold tracking-wider">ETA</span>
-                  <div className="text-sm sm:text-base font-black text-indigo-300 leading-tight">
-                    {currentEta}
-                  </div>
-                </div>
+                <Clock className="w-3 h-3 text-indigo-400 shrink-0" />
+                <span className="text-[9px] text-slate-400 font-bold">ETA</span>
+                <span className="text-xs sm:text-sm font-black text-indigo-300 leading-none">
+                  {currentEta}
+                </span>
               </div>
             )}
 
             {/* Route Voyage Navigation Info */}
             {navigationSession.isNavigating && navigationSession.isRouteNavigation && activeRoute && (
-              <div className={`hidden md:flex px-2.5 sm:px-3 py-1.5 rounded-xl border backdrop-blur-md items-center gap-2 shadow-2xl ${
+              <div className={`hidden lg:flex px-2 py-1 rounded-lg border backdrop-blur-md items-center gap-1.5 shadow-lg shrink-0 ${
                 isNightMode ? 'bg-amber-950/90 border-amber-800 text-amber-200' : 'bg-slate-900/90 border-cyan-700 text-cyan-200'
               }`}>
-                <Anchor className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                <div className="flex flex-col">
-                  <span className="text-[8px] uppercase font-bold tracking-wider text-slate-400">
-                    ROUTE ({activeRoute.name})
-                  </span>
-                  <div className="text-xs font-bold font-mono">
-                    Leg {(navigationSession.currentLegIndex ?? 0) + 1}/{navigationSession.totalLegs || activeRoute.waypoints.length}
-                    {navigationSession.routeRemainingDistanceNm !== undefined && (
-                      <span className="text-[10px] ml-1.5 text-amber-400">
-                        • {navigationSession.routeRemainingDistanceNm.toFixed(1)} NM rem
-                      </span>
-                    )}
-                  </div>
-                </div>
+                <Anchor className="w-3 h-3 text-cyan-400 shrink-0" />
+                <span className="text-[9px] font-bold text-slate-400">
+                  {activeRoute.name.length > 10 ? activeRoute.name.substring(0, 10) + '...' : activeRoute.name}
+                </span>
+                <span className="text-xs font-bold font-mono">
+                  L{(navigationSession.currentLegIndex ?? 0) + 1}/{navigationSession.totalLegs || activeRoute.waypoints.length}
+                </span>
               </div>
             )}
           </div>
 
-          {/* Right Cluster: Map Mode Toggle & Exit Full Screen Button */}
-          <div className="pointer-events-auto flex items-center gap-2">
+          {/* Right Cluster: Compact Mode Pill & Exit Full Screen Button */}
+          <div className="pointer-events-auto flex items-center gap-1 sm:gap-2 shrink-0">
             {/* Live / Offline Toggle */}
-            <div className="flex items-center bg-slate-900/90 p-0.5 rounded-xl border border-slate-700 text-xs font-mono shadow-2xl backdrop-blur-md">
+            <div className="flex items-center bg-slate-900/90 p-0.5 rounded-lg border border-slate-700 text-xs font-mono shadow-lg backdrop-blur-md">
               <button
                 type="button"
                 onClick={() => setMapMode('offline')}
-                className={`px-2 sm:px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 text-[10px] sm:text-xs ${
+                className={`px-1.5 sm:px-2 py-0.5 rounded transition-all text-[9px] sm:text-[10px] font-bold ${
                   mapMode === 'offline'
-                    ? 'bg-cyan-600 text-white font-bold shadow'
+                    ? 'bg-cyan-600 text-white shadow'
                     : 'text-slate-400 hover:text-white'
                 }`}
-                title="Offline Marine Vector Mode"
+                title="Offline Vector Mode"
               >
-                <Radio className="w-3 h-3" />
-                <span>OFFLINE</span>
+                OFFLINE
               </button>
               <button
                 type="button"
@@ -1809,17 +1825,16 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
                   if (isOnline) setMapMode('live');
                 }}
                 disabled={!isOnline}
-                className={`px-2 sm:px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 text-[10px] sm:text-xs ${
+                className={`px-1.5 sm:px-2 py-0.5 rounded transition-all text-[9px] sm:text-[10px] font-bold ${
                   !isOnline
-                    ? 'opacity-40 cursor-not-allowed text-slate-500'
+                    ? 'opacity-30 cursor-not-allowed text-slate-500'
                     : mapMode === 'live'
-                    ? 'bg-emerald-600 text-white font-bold shadow animate-pulse'
+                    ? 'bg-emerald-600 text-white shadow animate-pulse'
                     : 'text-slate-400 hover:text-white'
                 }`}
-                title={isOnline ? 'Online Live Map Mode' : 'No Internet Connection'}
+                title={isOnline ? 'Online Live Map Mode' : 'No Internet'}
               >
-                <Globe className="w-3 h-3" />
-                <span>LIVE</span>
+                LIVE
               </button>
             </div>
 
@@ -1828,10 +1843,10 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
               id="btn-exit-fullscreen-hud"
               type="button"
               onClick={toggleFullscreen}
-              className="px-3 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-[11px] sm:text-xs font-bold font-mono flex items-center gap-1.5 transition-all shadow-2xl border border-red-400 active:scale-95"
+              className="px-2 sm:px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[10px] sm:text-xs font-bold font-mono flex items-center gap-1 transition-all shadow-lg border border-red-400 active:scale-95 shrink-0"
               title="Exit Full Screen"
             >
-              <Minimize2 className="w-3.5 h-3.5" />
+              <Minimize2 className="w-3 h-3" />
               <span>EXIT</span>
             </button>
           </div>
@@ -1840,16 +1855,16 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
 
       {/* Top Header Floating Status & Mode Bar (When NOT in Fullscreen) */}
       {!isFullscreen && (
-        <div className="absolute top-3 left-3 right-3 flex flex-wrap items-center justify-between gap-2 pointer-events-none z-20">
+        <div className="absolute top-2.5 left-2.5 right-2.5 flex flex-wrap items-center justify-between gap-1.5 pointer-events-none z-20">
           {/* Left: Vessel Position Badge & Map Mode Switch */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className={`pointer-events-auto px-3 py-1.5 rounded-xl border backdrop-blur-md text-xs font-mono flex items-center gap-2 shadow-lg ${
+          <div className="flex flex-wrap items-center gap-1.5">
+            <div className={`pointer-events-auto px-2.5 py-1 rounded-lg border backdrop-blur-md text-[11px] font-mono flex items-center gap-1.5 shadow-lg ${
               isNightMode 
                 ? 'bg-red-950/85 border-red-800 text-red-300' 
                 : 'bg-slate-900/90 border-slate-700 text-slate-200'
             }`}>
-              <Compass className={`w-3.5 h-3.5 ${isNightMode ? 'text-red-400' : 'text-cyan-400'}`} />
-              <span>Vessel:</span>
+              <Compass className={`w-3 h-3 ${isNightMode ? 'text-red-400' : 'text-cyan-400'}`} />
+              <span className="hidden xs:inline">Vessel:</span>
               <span className="font-bold text-white">
                 {formatMarineDDM(gps.latitude !== null ? gps.latitude : vesselLat, false)}
               </span>
@@ -1860,18 +1875,18 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
             </div>
 
             {/* LIVE vs OFFLINE Segmented Pill */}
-            <div className="pointer-events-auto flex items-center bg-slate-900/90 p-0.5 rounded-xl border border-slate-700 text-xs font-mono shadow-lg backdrop-blur-md">
+            <div className="pointer-events-auto flex items-center bg-slate-900/90 p-0.5 rounded-lg border border-slate-700 text-[10px] font-mono shadow-lg backdrop-blur-md">
               <button
                 type="button"
                 onClick={() => setMapMode('offline')}
-                className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 text-[11px] ${
+                className={`px-2 py-0.5 rounded transition-all flex items-center gap-1 font-bold ${
                   mapMode === 'offline'
-                    ? 'bg-cyan-600 text-white font-bold shadow'
+                    ? 'bg-cyan-600 text-white shadow'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
                 title="Offline Vector Marine Chart (No Internet Required)"
               >
-                <Radio className="w-3 h-3" />
+                <Radio className="w-2.5 h-2.5" />
                 <span>OFFLINE</span>
               </button>
 
@@ -1881,16 +1896,16 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
                   if (isOnline) setMapMode('live');
                 }}
                 disabled={!isOnline}
-                className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 text-[11px] ${
+                className={`px-2 py-0.5 rounded transition-all flex items-center gap-1 font-bold ${
                   !isOnline
                     ? 'opacity-40 cursor-not-allowed text-slate-500'
                     : mapMode === 'live'
-                    ? 'bg-emerald-600 text-white font-bold shadow animate-pulse'
+                    ? 'bg-emerald-600 text-white shadow animate-pulse'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
                 title={isOnline ? 'Online Live Oceanography and Navigation Map' : 'No Internet Connection'}
               >
-                <Globe className="w-3 h-3" />
+                <Globe className="w-2.5 h-2.5" />
                 <span>LIVE</span>
                 {isOnline ? <Wifi className="w-2.5 h-2.5 text-emerald-300" /> : <WifiOff className="w-2.5 h-2.5 text-red-400" />}
               </button>
@@ -1898,24 +1913,21 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
           </div>
 
           {/* Right: Live Cursor Coordinate Display & Add Waypoint Banner */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             {cursorCoords && (
-              <div className={`hidden sm:flex pointer-events-auto px-2.5 py-1 rounded-lg border text-[11px] font-mono items-center gap-1.5 backdrop-blur-md ${
+              <div className={`hidden sm:flex pointer-events-auto px-2 py-0.5 rounded-lg border text-[10px] font-mono items-center gap-1 backdrop-blur-md ${
                 isNightMode 
                   ? 'bg-red-950/70 border-red-900 text-red-400' 
                   : 'bg-slate-900/70 border-slate-800 text-slate-400'
               }`}>
-                <Crosshair className="w-3 h-3 text-cyan-400" />
-                <span>Cursor:</span>
-                <span className="text-cyan-300 font-bold">
-                  {cursorCoords.lat.toFixed(4)}°N, {cursorCoords.lon.toFixed(4)}°E
-                </span>
+                <Crosshair className="w-2.5 h-2.5 text-cyan-400" />
+                <span>{cursorCoords.lat.toFixed(3)}°N, {cursorCoords.lon.toFixed(3)}°E</span>
               </div>
             )}
 
             {isAddWaypointMode && (
-              <div className="pointer-events-auto px-3 py-1 bg-amber-500 text-slate-950 font-bold rounded-lg text-xs flex items-center gap-1.5 shadow-lg animate-pulse">
-                <MapPin className="w-3.5 h-3.5" />
+              <div className="pointer-events-auto px-2.5 py-1 bg-amber-500 text-slate-950 font-bold rounded-lg text-[11px] flex items-center gap-1 shadow-lg animate-pulse">
+                <MapPin className="w-3 h-3" />
                 <span>Tap on map to place Waypoint</span>
               </div>
             )}
@@ -1925,17 +1937,17 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
 
       {/* Floating Active Voyage Guidance Bar on Chart (Non-fullscreen) */}
       {!isFullscreen && navigationSession.isNavigating && targetWaypoint && (
-        <div className="absolute top-14 left-3 right-16 z-20 pointer-events-none">
-          <div className={`pointer-events-auto p-2.5 rounded-xl border backdrop-blur-md shadow-2xl flex flex-wrap items-center justify-between gap-2 text-xs font-mono animate-fadeIn ${
+        <div className="absolute top-12 left-2.5 right-14 z-20 pointer-events-none">
+          <div className={`pointer-events-auto p-2 rounded-xl border backdrop-blur-md shadow-2xl flex flex-wrap items-center justify-between gap-2 text-xs font-mono animate-fadeIn ${
             isNightMode ? 'bg-red-950/90 border-red-700 text-red-200' : 'bg-slate-900/90 border-amber-500/80 text-slate-200'
           }`}>
             <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping shrink-0" />
-              <span className="text-amber-400 font-bold uppercase text-[11px]">Navigating To:</span>
-              <span className="font-bold text-white underline underline-offset-2">{targetWaypoint.name}</span>
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping shrink-0" />
+              <span className="text-amber-400 font-bold uppercase text-[10px]">Navigating To:</span>
+              <span className="font-bold text-white underline underline-offset-2 text-xs">{targetWaypoint.name}</span>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5 text-[11px]">
               <span className="text-slate-400">
                 DIST: <strong className="text-amber-400">{directDistanceNm.toFixed(1)} NM</strong>
               </span>
@@ -1955,14 +1967,14 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
         </div>
       )}
 
-      {/* Right Floating Control Tools (Zoom, Fullscreen, Center & Layers) */}
-      <div className={`absolute ${isFullscreen ? 'top-16 sm:top-14' : 'top-16'} right-3 flex flex-col gap-2 pointer-events-auto z-30`}>
+      {/* Right Floating Control Tools (Zoom, Fullscreen, Center, Fit & Layers) */}
+      <div className={`absolute ${isFullscreen ? 'top-13 sm:top-15' : 'top-13 sm:top-15'} right-2 sm:right-3.5 flex flex-col gap-1.5 sm:gap-2 pointer-events-auto z-30`}>
         {/* Fullscreen Toggle Button */}
         <button
           id="btn-toggle-fullscreen"
           type="button"
           onClick={toggleFullscreen}
-          className={`p-2.5 rounded-xl border backdrop-blur-md transition-all shadow-xl ${
+          className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl border backdrop-blur-md transition-all shadow-xl flex items-center justify-center ${
             isFullscreen
               ? 'bg-red-600 border-red-500 text-white animate-pulse'
               : isNightMode
@@ -1971,85 +1983,83 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
           }`}
           title={isFullscreen ? 'Exit Full Screen' : 'View Full Screen Chart with Marine Navigation HUD'}
         >
-          {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Maximize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
+        </button>
+
+        {/* Fit All / Route Overview Button */}
+        <button
+          type="button"
+          onClick={fitAllInView}
+          className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl border backdrop-blur-md transition-all shadow-lg flex items-center justify-center ${
+            isNightMode 
+              ? 'bg-red-950/90 border-red-800 text-red-200 hover:bg-red-900' 
+              : 'bg-slate-900/90 border-slate-700 text-cyan-300 hover:bg-slate-800 hover:text-cyan-200'
+          }`}
+          title="Fit entire route and map on screen"
+        >
+          <Maximize className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </button>
 
         {/* Zoom In Button */}
         <button
           type="button"
           onClick={() => setZoom((prev) => Math.min(800, prev * 1.3))}
-          className={`p-2.5 rounded-xl border backdrop-blur-md transition-all shadow-lg ${
+          className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl border backdrop-blur-md transition-all shadow-lg flex items-center justify-center ${
             isNightMode 
               ? 'bg-red-950/90 border-red-800 text-red-200 hover:bg-red-900' 
               : 'bg-slate-900/90 border-slate-700 text-slate-200 hover:bg-slate-800 hover:text-cyan-400'
           }`}
           title="Zoom In"
         >
-          <Plus className="w-4 h-4" />
+          <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </button>
 
         {/* Zoom Out Button */}
         <button
           type="button"
           onClick={() => setZoom((prev) => Math.max(5, prev * 0.7))}
-          className={`p-2.5 rounded-xl border backdrop-blur-md transition-all shadow-lg ${
+          className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl border backdrop-blur-md transition-all shadow-lg flex items-center justify-center ${
             isNightMode 
               ? 'bg-red-950/90 border-red-800 text-red-200 hover:bg-red-900' 
               : 'bg-slate-900/90 border-slate-700 text-slate-200 hover:bg-slate-800 hover:text-cyan-400'
           }`}
           title="Zoom Out"
         >
-          <Minus className="w-4 h-4" />
+          <Minus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </button>
 
         {/* Center on Vessel Button */}
         <button
           type="button"
           onClick={centerOnVessel}
-          className={`p-2.5 rounded-xl border backdrop-blur-md transition-all shadow-lg ${
+          className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl border backdrop-blur-md transition-all shadow-lg flex items-center justify-center ${
             autoFollowVessel 
               ? (isNightMode ? 'bg-red-900 border-red-600 text-white' : 'bg-cyan-500 border-cyan-400 text-slate-950 font-bold') 
               : (isNightMode ? 'bg-red-950/90 border-red-800 text-red-300' : 'bg-slate-900/90 border-slate-700 text-slate-300 hover:bg-slate-800')
           }`}
           title="Center & Follow Vessel"
         >
-          <LocateFixed className="w-4 h-4" />
+          <LocateFixed className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </button>
-
-        {/* Center on Route Button */}
-        {activeRoute && activeRoute.waypoints.length > 0 && (
-          <button
-            type="button"
-            onClick={centerOnRoute}
-            className={`p-2.5 rounded-xl border backdrop-blur-md transition-all shadow-lg ${
-              isNightMode 
-                ? 'bg-red-950/90 border-red-800 text-red-300 hover:bg-red-900' 
-                : 'bg-slate-900/90 border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-cyan-400'
-            }`}
-            title="Fit Route on Screen"
-          >
-            <Crosshair className="w-4 h-4" />
-          </button>
-        )}
 
         {/* Layer Controls Toggle */}
         <button
           type="button"
           onClick={() => setShowLayersMenu(!showLayersMenu)}
-          className={`p-2.5 rounded-xl border backdrop-blur-md transition-all shadow-lg ${
+          className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl border backdrop-blur-md transition-all shadow-lg flex items-center justify-center ${
             showLayersMenu
               ? (isNightMode ? 'bg-red-800 border-red-600 text-white' : 'bg-slate-800 border-cyan-500 text-cyan-300')
               : (isNightMode ? 'bg-red-950/90 border-red-800 text-red-300' : 'bg-slate-900/90 border-slate-700 text-slate-300 hover:bg-slate-800')
           }`}
           title="Chart Layers, Tile Providers & Nautical Features"
         >
-          <Layers className="w-4 h-4" />
+          <Layers className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </button>
       </div>
 
       {/* Layers & Online Map Settings Popup */}
       {showLayersMenu && (
-        <div className={`absolute ${isFullscreen ? 'top-16 sm:top-14' : 'top-16'} right-16 z-40 p-3.5 rounded-xl border shadow-2xl backdrop-blur-lg flex flex-col gap-2.5 min-w-[260px] max-h-[85vh] overflow-y-auto text-xs font-mono ${
+        <div className={`absolute ${isFullscreen ? 'top-14 sm:top-16' : 'top-14 sm:top-16'} right-12 sm:right-14 z-40 p-3 rounded-xl border shadow-2xl backdrop-blur-lg flex flex-col gap-2.5 min-w-[240px] max-w-[calc(100vw-60px)] max-h-[80vh] overflow-y-auto text-xs font-mono ${
           isNightMode ? 'bg-red-950/95 border-red-800 text-red-200' : 'bg-slate-900/95 border-slate-700 text-slate-200'
         }`}>
           {/* Online Map Provider Selector (When in Live Mode) */}
@@ -2330,4 +2340,27 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
       )}
     </div>
   );
+
+  if (isFullscreen && typeof document !== 'undefined') {
+    return (
+      <>
+        <div className={`w-full h-[460px] sm:h-[560px] lg:h-[640px] rounded-2xl border flex flex-col items-center justify-center gap-3 ${
+          isNightMode ? 'bg-red-950/20 border-red-900/50 text-red-400' : 'bg-slate-900/40 border-slate-800 text-slate-400'
+        }`}>
+          <Maximize2 className="w-8 h-8 opacity-40 animate-pulse text-cyan-400" />
+          <span className="font-mono text-xs font-bold text-slate-300">Marine Chart is currently in Full Screen</span>
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-slate-950 text-xs font-mono font-bold transition-all shadow-md"
+          >
+            Restore Embedded View
+          </button>
+        </div>
+        {createPortal(chartContent, document.body)}
+      </>
+    );
+  }
+
+  return chartContent;
 };
