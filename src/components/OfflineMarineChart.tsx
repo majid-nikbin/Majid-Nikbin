@@ -31,6 +31,7 @@ import {
 import { GpsData, CompassData, MarineRoute, Waypoint, NavigationSession } from '../types';
 import { 
   WORLD_LANDMASSES, 
+  INLAND_WATER_BODIES,
   BATHYMETRY_CONTOURS, 
   NAUTICAL_SOUNDINGS,
   MARINE_PLACE_LABELS,
@@ -206,20 +207,89 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
     }
   }, [gps.latitude, gps.longitude, autoFollowVessel]);
 
-  // Coordinate Conversion Functions (Equirectangular / Mercator projection at local scale)
+// Web Mercator standard conformal projection formulas (EPSG:3857)
+const lonToMercatorX = (lon: number): number => {
+  return (lon + 180) / 360;
+};
+
+const latToMercatorY = (lat: number): number => {
+  const clampedLat = Math.max(-85.05112878, Math.min(85.05112878, lat));
+  const sin = Math.sin((clampedLat * Math.PI) / 180);
+  return 0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI);
+};
+
+const mercatorXToLon = (x: number): number => {
+  return x * 360 - 180;
+};
+
+const mercatorYToLat = (y: number): number => {
+  const y2 = (180 - y * 360) * Math.PI / 180;
+  return (180 / Math.PI) * (2 * Math.atan(Math.exp(y2)) - Math.PI / 2);
+};
+
+/**
+ * Natural spline polygon renderer.
+ * Converts sharp polygon vertices into smooth, organic, hydrographically authentic coastlines.
+ */
+function drawSmoothPolygon(
+  ctx: CanvasRenderingContext2D,
+  screenPoints: { x: number; y: number }[],
+  tension: number = 0.22
+) {
+  const len = screenPoints.length;
+  if (len < 3) return;
+
+  ctx.beginPath();
+  ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
+
+  for (let i = 0; i < len; i++) {
+    const pPrev = screenPoints[(i - 1 + len) % len];
+    const pCur = screenPoints[i];
+    const pNext = screenPoints[(i + 1) % len];
+    const pNextNext = screenPoints[(i + 2) % len];
+
+    const cp1x = pCur.x + (pNext.x - pPrev.x) * tension;
+    const cp1y = pCur.y + (pNext.y - pPrev.y) * tension;
+    const cp2x = pNext.x - (pNextNext.x - pCur.x) * tension;
+    const cp2y = pNext.y - (pNextNext.y - pCur.y) * tension;
+
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, pNext.x, pNext.y);
+  }
+  ctx.closePath();
+}
+
+  // Coordinate Conversion Functions (Standard Web Mercator conformal projection)
   const geoToCanvas = useCallback((lon: number, lat: number, width: number, height: number) => {
-    const scale = zoom * 10;
-    const x = width / 2 + (lon - center[0]) * scale;
-    const y = height / 2 - (lat - center[1]) * scale;
+    const curZoom = zoomRef.current;
+    const curCenter = centerRef.current;
+    const worldPixels = curZoom * 3600;
+    const cx = lonToMercatorX(curCenter[0]) * worldPixels;
+    const cy = latToMercatorY(curCenter[1]) * worldPixels;
+
+    let dLon = ((lon - curCenter[0] + 540) % 360) - 180;
+    const px = lonToMercatorX(curCenter[0] + dLon) * worldPixels;
+    const py = latToMercatorY(lat) * worldPixels;
+
+    const x = width / 2 + (px - cx);
+    const y = height / 2 + (py - cy);
     return { x, y };
-  }, [center, zoom]);
+  }, []);
 
   const canvasToGeo = useCallback((x: number, y: number, width: number, height: number) => {
-    const scale = zoom * 10;
-    const lon = center[0] + (x - width / 2) / scale;
-    const lat = center[1] - (y - height / 2) / scale;
+    const curZoom = zoomRef.current;
+    const curCenter = centerRef.current;
+    const worldPixels = curZoom * 3600;
+    const cx = lonToMercatorX(curCenter[0]) * worldPixels;
+    const cy = latToMercatorY(curCenter[1]) * worldPixels;
+
+    const px = cx + (x - width / 2);
+    const py = cy + (y - height / 2);
+
+    const normX = ((px / worldPixels) % 1 + 1) % 1;
+    const lon = mercatorXToLon(normX);
+    const lat = mercatorYToLat(py / worldPixels);
     return { lat, lon };
-  }, [center, zoom]);
+  }, []);
 
   const triggerTileRedraw = useCallback(() => {
     renderTriggerRef.current = (renderTriggerRef.current + 1) % 1000;
@@ -266,18 +336,110 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
       ctx.fillStyle = isNightMode ? '#080404' : '#071626';
       ctx.fillRect(0, 0, width, height);
 
-      // 2. Draw Bathymetry Depth Zones & Contours
+      // 2. Draw World Landmass Polygons & Outer Coastlines (Warm Nautical Khaki with Organic Spline Curves)
+      WORLD_LANDMASSES.forEach((land) => {
+        if (land.points.length < 3) return;
+        const screenPts = land.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
+
+        // Bounding box screen culling check
+        let minX = screenPts[0].x, maxX = screenPts[0].x;
+        let minY = screenPts[0].y, maxY = screenPts[0].y;
+        for (let i = 1; i < screenPts.length; i++) {
+          const pt = screenPts[i];
+          if (pt.x < minX) minX = pt.x;
+          if (pt.x > maxX) maxX = pt.x;
+          if (pt.y < minY) minY = pt.y;
+          if (pt.y > maxY) maxY = pt.y;
+        }
+        if (maxX < -80 || minX > width + 80 || maxY < -80 || minY > height + 80) {
+          return;
+        }
+
+        // Draw natural, organic shoreline curves
+        drawSmoothPolygon(ctx, screenPts, 0.22);
+
+        // Land fill color: Authentic Nautical Chart Buff / Khaki tone
+        ctx.fillStyle = isNightMode ? '#2d2215' : '#d8c79d';
+        ctx.fill();
+
+        // Coastal shallow intertidal fringe (gives authentic hydrographic depth)
+        ctx.strokeStyle = isNightMode ? 'rgba(110, 79, 37, 0.35)' : 'rgba(18, 72, 99, 0.28)';
+        ctx.lineWidth = 4.5;
+        ctx.stroke();
+
+        // Coastline stroke: Rich ochre shoreline border
+        ctx.strokeStyle = isNightMode ? '#6e4f25' : '#9b824f';
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+      });
+
+      // 3. Draw Inland Water Bodies & Major Regional Seas (Caspian Sea, Black Sea, Sea of Azov, Sea of Marmara, Lakes)
+      INLAND_WATER_BODIES.forEach((water) => {
+        if (water.points.length < 3) return;
+        const screenPts = water.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
+
+        let minX = screenPts[0].x, maxX = screenPts[0].x;
+        let minY = screenPts[0].y, maxY = screenPts[0].y;
+        for (let i = 1; i < screenPts.length; i++) {
+          const pt = screenPts[i];
+          if (pt.x < minX) minX = pt.x;
+          if (pt.x > maxX) maxX = pt.x;
+          if (pt.y < minY) minY = pt.y;
+          if (pt.y > maxY) maxY = pt.y;
+        }
+        if (maxX < -80 || minX > width + 80 || maxY < -80 || minY > height + 80) {
+          return;
+        }
+
+        drawSmoothPolygon(ctx, screenPts, 0.18);
+
+        // Water fill color (Deep Admiralty Blue)
+        ctx.fillStyle = isNightMode ? '#080404' : '#071626';
+        ctx.fill();
+
+        // Coastal shallow fringe
+        ctx.strokeStyle = isNightMode ? 'rgba(110, 79, 37, 0.35)' : 'rgba(18, 72, 99, 0.28)';
+        ctx.lineWidth = 4;
+        ctx.stroke();
+
+        // Coastline stroke: Rich ochre shoreline border
+        ctx.strokeStyle = isNightMode ? '#6e4f25' : '#9b824f';
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+      });
+
+      // Re-draw any islands situated inside inland water bodies (e.g. Ashuradeh in Caspian, Snake Island in Black Sea)
+      WORLD_LANDMASSES.filter(l => l.name.includes('Ashuradeh') || l.name.includes('Ogurchinskiy') || l.name.includes('Snake Island')).forEach((island) => {
+        if (island.points.length < 3) return;
+        const screenPts = island.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
+        drawSmoothPolygon(ctx, screenPts, 0.2);
+        ctx.fillStyle = isNightMode ? '#2d2215' : '#d8c79d';
+        ctx.fill();
+        ctx.strokeStyle = isNightMode ? '#6e4f25' : '#9b824f';
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+      });
+
+      // 4. Draw Bathymetry Depth Zones & Contours
       if (showBathymetry) {
         BATHYMETRY_CONTOURS.forEach((contour) => {
           if (contour.points.length < 3) return;
+          const screenPts = contour.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
 
-          ctx.beginPath();
-          contour.points.forEach(([lon, lat], index) => {
-            const pt = geoToCanvas(lon, lat, width, height);
-            if (index === 0) ctx.moveTo(pt.x, pt.y);
-            else ctx.lineTo(pt.x, pt.y);
-          });
-          ctx.closePath();
+          let minX = screenPts[0].x, maxX = screenPts[0].x;
+          let minY = screenPts[0].y, maxY = screenPts[0].y;
+          for (let i = 1; i < screenPts.length; i++) {
+            const pt = screenPts[i];
+            if (pt.x < minX) minX = pt.x;
+            if (pt.x > maxX) maxX = pt.x;
+            if (pt.y < minY) minY = pt.y;
+            if (pt.y > maxY) maxY = pt.y;
+          }
+          if (maxX < -80 || minX > width + 80 || maxY < -80 || minY > height + 80) {
+            return;
+          }
+
+          drawSmoothPolygon(ctx, screenPts, 0.18);
 
           // Nautical depth color graduation
           if (contour.depthMeters <= 5) {
@@ -297,11 +459,11 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
 
           // Depth Contour boundary line
           ctx.strokeStyle = isNightMode ? 'rgba(239, 68, 68, 0.28)' : 'rgba(56, 189, 248, 0.3)';
-          ctx.lineWidth = 1;
+          ctx.lineWidth = 1.0;
           ctx.stroke();
 
           // Depth Label
-          if (zoom > 20 && contour.points.length > 2) {
+          if (zoom > 15 && contour.points.length > 2) {
             const midPt = geoToCanvas(contour.points[0][0], contour.points[0][1], width, height);
             if (midPt.x > 0 && midPt.x < width && midPt.y > 0 && midPt.y < height) {
               ctx.fillStyle = isNightMode ? 'rgba(239, 68, 68, 0.7)' : 'rgba(56, 189, 248, 0.75)';
@@ -311,28 +473,6 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
           }
         });
       }
-
-      // 3. Draw World Landmass Polygons & Coastlines (Warm Khaki / Mustard Tone)
-      WORLD_LANDMASSES.forEach((land) => {
-        if (land.points.length < 3) return;
-
-        ctx.beginPath();
-        land.points.forEach(([lon, lat], index) => {
-          const pt = geoToCanvas(lon, lat, width, height);
-          if (index === 0) ctx.moveTo(pt.x, pt.y);
-          else ctx.lineTo(pt.x, pt.y);
-        });
-        ctx.closePath();
-
-        // Land fill color: Authentic Nautical Chart Khaki / Mustard tone
-        ctx.fillStyle = isNightMode ? '#2d2215' : '#d8c79d';
-        ctx.fill();
-
-        // Coastline stroke: Rich ochre shoreline border
-        ctx.strokeStyle = isNightMode ? '#6e4f25' : '#9b824f';
-        ctx.lineWidth = 1.6;
-        ctx.stroke();
-      });
     }
 
     // =========================================================================
@@ -788,6 +928,37 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
         const pt = geoToCanvas(place.lon, place.lat, width, height);
         if (pt.x < -140 || pt.x > width + 140 || pt.y < -50 || pt.y > height + 50) return;
 
+        // --- GLOBAL OCEANS ---
+        if (place.type === 'ocean') {
+          ctx.save();
+          ctx.font = 'bold 16px sans-serif';
+          ctx.fillStyle = isNightMode ? 'rgba(239, 68, 68, 0.4)' : 'rgba(56, 189, 248, 0.5)';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          const spaced = place.name.split('').join(' ');
+          ctx.fillText(spaced, pt.x, pt.y);
+          ctx.restore();
+          return;
+        }
+
+        // --- SOVEREIGN COUNTRIES ---
+        if (place.type === 'country') {
+          ctx.save();
+          ctx.font = 'bold 11px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          const tw = ctx.measureText(place.name).width + 12;
+          ctx.fillStyle = isNightMode ? 'rgba(30, 15, 10, 0.75)' : 'rgba(15, 23, 42, 0.75)';
+          ctx.fillRect(pt.x - tw / 2, pt.y - 8, tw, 16);
+          ctx.strokeStyle = isNightMode ? 'rgba(248, 113, 113, 0.5)' : 'rgba(251, 191, 36, 0.6)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(pt.x - tw / 2, pt.y - 8, tw, 16);
+          ctx.fillStyle = isNightMode ? '#fca5a5' : '#fef08a';
+          ctx.fillText(place.name, pt.x, pt.y);
+          ctx.restore();
+          return;
+        }
+
         if (place.type === 'sea_label') {
           ctx.save();
           ctx.font = 'bold 15px sans-serif';
@@ -1137,27 +1308,33 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
     }
 
     // =========================================================================
-    // 14. LIVE VESSEL BOAT MARKER & RANGE RINGS
+    // 14. LIVE VESSEL BOAT MARKER & RANGE RINGS (GPS Heading COG in Route/Nav)
     // =========================================================================
     {
       const boatPt = geoToCanvas(vesselLon, vesselLat, width, height);
-      const headingDeg = compass.trueHeading || compass.magneticHeading || gps.heading || 0;
+      const isRouteOrNavActive = navigationSession.isNavigating || !!activeRoute || !!targetWaypoint || isAddWaypointMode;
+      const validGpsHeading = (gps.heading !== null && !isNaN(gps.heading)) ? gps.heading : null;
+      const headingDeg = isRouteOrNavActive
+        ? (validGpsHeading ?? (compass.trueHeading || compass.magneticHeading || 0))
+        : (compass.trueHeading || compass.magneticHeading || validGpsHeading || 0);
       const headingRad = (headingDeg * Math.PI) / 180;
 
-      if (showRangeRings && zoom > 30) {
-        const nmPixels = (1 / 60) * (zoom * 10);
+      if (showRangeRings && zoom > 15) {
+        const boatLatRad = (vesselLat * Math.PI) / 180;
+        const cosBoatLat = Math.max(0.15, Math.cos(boatLatRad));
+        const nmPixels = (zoom * 10) / (60 * cosBoatLat);
         [1, 2, 5].forEach((ringNm) => {
           const radius = nmPixels * ringNm;
           ctx.beginPath();
           ctx.arc(boatPt.x, boatPt.y, radius, 0, Math.PI * 2);
-          ctx.strokeStyle = isNightMode ? 'rgba(239, 68, 68, 0.15)' : 'rgba(56, 189, 248, 0.18)';
+          ctx.strokeStyle = isNightMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(56, 189, 248, 0.28)';
           ctx.lineWidth = 1;
           ctx.setLineDash([3, 4]);
           ctx.stroke();
           ctx.setLineDash([]);
 
-          ctx.fillStyle = isNightMode ? 'rgba(239, 68, 68, 0.4)' : 'rgba(148, 163, 184, 0.5)';
-          ctx.font = '8px monospace';
+          ctx.fillStyle = isNightMode ? 'rgba(239, 68, 68, 0.6)' : 'rgba(148, 163, 184, 0.8)';
+          ctx.font = '8.5px monospace';
           ctx.fillText(`${ringNm}NM`, boatPt.x + radius + 2, boatPt.y - 2);
         });
       }
@@ -1252,6 +1429,83 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
       ctx.textBaseline = 'bottom';
       ctx.fillText('N', 0, -roseRadius + 2);
       ctx.restore();
+    }
+
+    // =========================================================================
+    // 16. NAUTICAL SCALE BAR & ACCURATE DISTANCE INDICATOR (Bottom-Left)
+    // =========================================================================
+    {
+      const barX = 20;
+      const barY = height - 26;
+      const latRad = (center[1] * Math.PI) / 180;
+      const cosLat = Math.max(0.15, Math.cos(latRad));
+      
+      // Calculate Nautical Miles per pixel at current center latitude
+      // 1 degree lat = 60 NM; worldPixels = zoom * 3600
+      const nmPerPixel = (360 * cosLat * 60) / (zoom * 3600);
+
+      // Target bar display width around 100 pixels
+      const rawNm = nmPerPixel * 100;
+      let barNm = 1;
+      let barLabel = '1 NM';
+
+      if (rawNm >= 1500) {
+        barNm = Math.round(rawNm / 500) * 500;
+        barLabel = `${barNm} NM`;
+      } else if (rawNm >= 300) {
+        barNm = Math.round(rawNm / 100) * 100;
+        barLabel = `${barNm} NM`;
+      } else if (rawNm >= 60) {
+        barNm = Math.round(rawNm / 25) * 25;
+        barLabel = `${barNm} NM`;
+      } else if (rawNm >= 15) {
+        barNm = Math.round(rawNm / 5) * 5;
+        barLabel = `${barNm} NM`;
+      } else if (rawNm >= 3) {
+        barNm = Math.round(rawNm);
+        barLabel = `${barNm} NM`;
+      } else if (rawNm >= 0.7) {
+        barNm = 0.5;
+        barLabel = '0.5 NM';
+      } else if (rawNm >= 0.15) {
+        barNm = 0.1;
+        barLabel = `${Math.round(barNm * 1852)} m`;
+      } else {
+        barNm = rawNm;
+        barLabel = `${Math.max(10, Math.round(barNm * 1852))} m`;
+      }
+
+      const barWidthPx = barNm / nmPerPixel;
+
+      if (barWidthPx > 10 && barWidthPx < 320) {
+        ctx.save();
+        // Scale Bar Background Pill
+        ctx.fillStyle = isNightMode ? 'rgba(20, 5, 5, 0.85)' : 'rgba(15, 23, 42, 0.85)';
+        ctx.fillRect(barX - 6, barY - 15, barWidthPx + 12, 22);
+        ctx.strokeStyle = isNightMode ? 'rgba(239, 68, 68, 0.4)' : 'rgba(56, 189, 248, 0.4)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(barX - 6, barY - 15, barWidthPx + 12, 22);
+
+        // Bar line with end ticks
+        ctx.beginPath();
+        ctx.moveTo(barX, barY - 3);
+        ctx.lineTo(barX, barY + 3);
+        ctx.moveTo(barX, barY);
+        ctx.lineTo(barX + barWidthPx, barY);
+        ctx.moveTo(barX + barWidthPx, barY - 3);
+        ctx.lineTo(barX + barWidthPx, barY + 3);
+        ctx.strokeStyle = isNightMode ? '#ef4444' : '#38bdf8';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Label
+        ctx.font = 'bold 9px monospace';
+        ctx.fillStyle = isNightMode ? '#fca5a5' : '#e0f2fe';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(barLabel, barX + barWidthPx / 2, barY - 3);
+        ctx.restore();
+      }
     }
 
   }, [
@@ -1376,57 +1630,73 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
     const coords = canvasToGeo(x, y, rect.width, rect.height);
     setCursorCoords(coords);
 
-    if (!isDragging) return;
+    if (!isDraggingRef.current) return;
 
-    const dx = e.clientX - dragStart.x;
-    const dy = e.clientY - dragStart.y;
+    const dx = e.clientX - dragStartRef.current.x;
+    const dy = e.clientY - dragStartRef.current.y;
 
-    const scale = zoom * 10;
-    const dLon = dx / scale;
-    const dLat = dy / scale;
+    const currentZoom = zoomRef.current;
+    const worldPixels = currentZoom * 3600;
+    const dLon = (dx / worldPixels) * 360;
+    const cy = latToMercatorY(centerRef.current[1]) * worldPixels;
+    const newCy = cy - dy;
+    const newLat = mercatorYToLat(newCy / worldPixels);
 
-    setCenter(([lon, lat]) => [lon - dLon, lat + dLat]);
-    setDragStart({ x: e.clientX, y: e.clientY });
+    centerRef.current = [centerRef.current[0] - dLon, Math.max(-80, Math.min(80, newLat))];
     dragStartRef.current = { x: e.clientX, y: e.clientY };
   };
 
   const handleMouseUp = () => {
-    setIsDragging(false);
-    isDraggingRef.current = false;
+    if (isDraggingRef.current) {
+      isDraggingRef.current = false;
+      setIsDragging(false);
+      setCenter(centerRef.current);
+    }
   };
 
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
-    const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
-    setZoom((prev) => Math.max(5, Math.min(800, prev * zoomFactor)));
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const cursorX = e.clientX - rect.left;
+    const cursorY = e.clientY - rect.top;
+
+    const geoBefore = canvasToGeo(cursorX, cursorY, rect.width, rect.height);
+    const zoomFactor = e.deltaY < 0 ? 1.25 : 0.8;
+    const newZoom = Math.max(0.5, Math.min(40000, zoomRef.current * zoomFactor));
+
+    const worldPixels = newZoom * 3600;
+    const targetPx = lonToMercatorX(geoBefore.lon) * worldPixels;
+    const targetPy = latToMercatorY(geoBefore.lat) * worldPixels;
+
+    const newCx = targetPx - (cursorX - rect.width / 2);
+    const newCy = targetPy - (cursorY - rect.height / 2);
+
+    const newCenterLon = mercatorXToLon(newCx / worldPixels);
+    const newCenterLat = mercatorYToLat(newCy / worldPixels);
+
+    zoomRef.current = newZoom;
+    centerRef.current = [newCenterLon, Math.max(-80, Math.min(80, newCenterLat))];
+    setZoom(newZoom);
+    setCenter(centerRef.current);
+    setAutoFollowVessel(false);
   };
 
-  // Native Touch & Gesture handling on Canvas: Full-gesture in Fullscreen, and natural page scrolling in embedded mode
+  // Native Touch & Gesture handling on Canvas: Ultra-fluid 360-degree panning with zero frame drop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    let touchStartClientX = 0;
-    let touchStartClientY = 0;
-    let isVerticalPageScroll = false;
-    let isMapAction = false;
-
     const handleNativeTouchStart = (e: TouchEvent) => {
-      if (isFullscreen) {
-        if (e.cancelable) e.preventDefault();
-        e.stopPropagation();
-      }
+      if (e.cancelable) e.preventDefault();
 
       if (e.touches.length === 1) {
         const t = e.touches[0];
-        touchStartClientX = t.clientX;
-        touchStartClientY = t.clientY;
         dragStartRef.current = { x: t.clientX, y: t.clientY };
         touchStartPosRef.current = { x: t.clientX, y: t.clientY };
         touchStartTimeRef.current = Date.now();
         isDraggingRef.current = true;
-        isVerticalPageScroll = false;
-        isMapAction = false;
         setIsDragging(true);
         setAutoFollowVessel(false);
 
@@ -1435,7 +1705,6 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
         const coords = canvasToGeo(t.clientX - rect.left, t.clientY - rect.top, rect.width, rect.height);
         setCursorCoords(coords);
       } else if (e.touches.length === 2) {
-        if (e.cancelable) e.preventDefault();
         const dist = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
@@ -1447,15 +1716,17 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
     };
 
     const handleNativeTouchMove = (e: TouchEvent) => {
+      if (e.cancelable) e.preventDefault();
+
       if (e.touches.length === 2 && touchDistanceRef.current !== null) {
-        if (e.cancelable) e.preventDefault();
         const newDist = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
         );
         if (touchDistanceRef.current > 0) {
           const factor = newDist / touchDistanceRef.current;
-          setZoom((prev) => Math.max(5, Math.min(800, prev * factor)));
+          const newZoom = Math.max(0.5, Math.min(40000, zoomRef.current * factor));
+          zoomRef.current = newZoom;
         }
         touchDistanceRef.current = newDist;
         return;
@@ -1466,55 +1737,30 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
         const dx = t.clientX - dragStartRef.current.x;
         const dy = t.clientY - dragStartRef.current.y;
 
-        if (isFullscreen) {
-          if (e.cancelable) e.preventDefault();
-          e.stopPropagation();
+        const currentZoom = zoomRef.current;
+        const worldPixels = currentZoom * 3600;
+        const dLon = (dx / worldPixels) * 360;
+        const cy = latToMercatorY(centerRef.current[1]) * worldPixels;
+        const newCy = cy - dy;
+        const newLat = mercatorYToLat(newCy / worldPixels);
 
-          const currentZoom = zoomRef.current;
-          const scale = currentZoom * 10;
-          const dLon = dx / scale;
-          const dLat = dy / scale;
+        centerRef.current = [centerRef.current[0] - dLon, Math.max(-80, Math.min(80, newLat))];
+        dragStartRef.current = { x: t.clientX, y: t.clientY };
 
-          setCenter(([lon, lat]) => [lon - dLon, lat + dLat]);
-          dragStartRef.current = { x: t.clientX, y: t.clientY };
-
-          const rect = canvas.getBoundingClientRect();
-          const coords = canvasToGeo(t.clientX - rect.left, t.clientY - rect.top, rect.width, rect.height);
-          setCursorCoords(coords);
-        } else {
-          // When NOT in fullscreen: allow smooth vertical page scrolling on mobile
-          const deltaXFromStart = Math.abs(t.clientX - touchStartClientX);
-          const deltaYFromStart = Math.abs(t.clientY - touchStartClientY);
-
-          if (!isVerticalPageScroll && !isMapAction) {
-            if (deltaYFromStart > 8 && deltaYFromStart > deltaXFromStart) {
-              isVerticalPageScroll = true;
-              isDraggingRef.current = false;
-              setIsDragging(false);
-              return;
-            } else if (deltaXFromStart > 8 && deltaXFromStart > deltaYFromStart) {
-              isMapAction = true;
-            }
-          }
-
-          if (isMapAction) {
-            if (e.cancelable) e.preventDefault();
-            const currentZoom = zoomRef.current;
-            const scale = currentZoom * 10;
-            const dLon = dx / scale;
-            const dLat = dy / scale;
-
-            setCenter(([lon, lat]) => [lon - dLon, lat + dLat]);
-            dragStartRef.current = { x: t.clientX, y: t.clientY };
-          }
-        }
+        const rect = canvas.getBoundingClientRect();
+        const coords = canvasToGeo(t.clientX - rect.left, t.clientY - rect.top, rect.width, rect.height);
+        setCursorCoords(coords);
       }
     };
 
     const handleNativeTouchEnd = (e: TouchEvent) => {
-      if (isFullscreen) {
-        if (e.cancelable) e.preventDefault();
-        e.stopPropagation();
+      if (e.cancelable) e.preventDefault();
+
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false;
+        setIsDragging(false);
+        setCenter(centerRef.current);
+        setZoom(zoomRef.current);
       }
 
       // Check if this was a fast tap (under 300ms, moved < 8px)
@@ -1524,7 +1770,7 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
         const startPos = touchStartPosRef.current;
         const distMoved = Math.hypot(lastPos.x - startPos.x, lastPos.y - startPos.y);
 
-        if (!isVerticalPageScroll && timeDiff < 300 && distMoved < 8) {
+        if (timeDiff < 300 && distMoved < 8) {
           const rect = canvas.getBoundingClientRect();
           const clickX = startPos.x - rect.left;
           const clickY = startPos.y - rect.top;
@@ -1675,7 +1921,11 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
     : (navigationSession.bearingDeg || 0);
 
   const currentSpeedKnots = gps.speedKnots || 0;
-  const currentHeading = compass.trueHeading || compass.magneticHeading || gps.heading || 0;
+  const isRouteOrNavActive = navigationSession.isNavigating || !!activeRoute || !!targetWaypoint || isAddWaypointMode;
+  const validGpsHeading = (gps.heading !== null && !isNaN(gps.heading)) ? gps.heading : null;
+  const currentHeading = isRouteOrNavActive
+    ? (validGpsHeading ?? (compass.trueHeading || compass.magneticHeading || 0))
+    : (compass.trueHeading || compass.magneticHeading || validGpsHeading || 0);
   const currentEta = navigationSession.etaTimestamp ? formatEta(navigationSession.etaTimestamp) : '---';
 
   const chartContent = (
@@ -1709,7 +1959,7 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
       {/* Canvas Layer - Edge to Edge in Fullscreen with Native Touch Panning */}
       <canvas
         ref={canvasRef}
-        style={isFullscreen ? { touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none', width: '100%', height: '100%' } : { userSelect: 'none', WebkitUserSelect: 'none' }}
+        style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none', width: '100%', height: '100%' }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -1742,7 +1992,9 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
               isNightMode ? 'bg-red-950/90 border-red-800' : 'bg-slate-900/90 border-slate-700'
             }`}>
               <Compass className="w-3 h-3 text-cyan-400 shrink-0" />
-              <span className="text-[9px] text-slate-400 font-bold hidden xs:inline">HDG</span>
+              <span className="text-[9px] text-slate-400 font-bold hidden xs:inline">
+                {isRouteOrNavActive && validGpsHeading !== null ? 'GPS HDG' : 'HDG'}
+              </span>
               <span className="text-xs sm:text-sm font-black text-cyan-300 leading-none">
                 {currentHeading.toFixed(0)}°
               </span>
@@ -2006,13 +2258,13 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
         {/* Zoom In Button */}
         <button
           type="button"
-          onClick={() => setZoom((prev) => Math.min(800, prev * 1.3))}
+          onClick={() => setZoom((prev) => Math.min(40000, prev * 1.35))}
           className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl border backdrop-blur-md transition-all shadow-lg flex items-center justify-center ${
             isNightMode 
               ? 'bg-red-950/90 border-red-800 text-red-200 hover:bg-red-900' 
               : 'bg-slate-900/90 border-slate-700 text-slate-200 hover:bg-slate-800 hover:text-cyan-400'
           }`}
-          title="Zoom In"
+          title="Zoom In (Close-up detail)"
         >
           <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </button>
@@ -2020,13 +2272,13 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
         {/* Zoom Out Button */}
         <button
           type="button"
-          onClick={() => setZoom((prev) => Math.max(5, prev * 0.7))}
+          onClick={() => setZoom((prev) => Math.max(0.5, prev * 0.74))}
           className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl border backdrop-blur-md transition-all shadow-lg flex items-center justify-center ${
             isNightMode 
               ? 'bg-red-950/90 border-red-800 text-red-200 hover:bg-red-900' 
               : 'bg-slate-900/90 border-slate-700 text-slate-200 hover:bg-slate-800 hover:text-cyan-400'
           }`}
-          title="Zoom Out"
+          title="Zoom Out (World View)"
         >
           <Minus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </button>
@@ -2065,6 +2317,99 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
         <div className={`absolute ${isFullscreen ? 'top-14 sm:top-16' : 'top-14 sm:top-16'} right-12 sm:right-14 z-40 p-3 rounded-xl border shadow-2xl backdrop-blur-lg flex flex-col gap-2.5 min-w-[240px] max-w-[calc(100vw-60px)] max-h-[80vh] overflow-y-auto text-xs font-mono ${
           isNightMode ? 'bg-red-950/95 border-red-800 text-red-200' : 'bg-slate-900/95 border-slate-700 text-slate-200'
         }`}>
+          {/* Quick Region Jump Buttons */}
+          <div className="pb-2 border-b border-slate-800 flex flex-col gap-1.5">
+            <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1">
+              <Compass className="w-3 h-3 text-amber-400" />
+              <span>Quick Region Jump</span>
+            </span>
+            <div className="grid grid-cols-2 gap-1.5 mt-0.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setCenter([20.0, 20.0]);
+                  setZoom(1.8);
+                  setAutoFollowVessel(false);
+                }}
+                className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-cyan-950/80 border border-slate-700 hover:border-cyan-500/60 text-left transition-all"
+                title="Global World View (All Oceans & Continents)"
+              >
+                <div className="font-bold text-white text-[10px]">🌍 World View</div>
+                <div className="text-[8px] text-slate-400">Global Oceans</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setCenter([53.2, 26.5]);
+                  setZoom(45);
+                  setAutoFollowVessel(false);
+                }}
+                className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-amber-950/80 border border-slate-700 hover:border-amber-500/60 text-left transition-all"
+                title="Persian Gulf & Strait of Hormuz"
+              >
+                <div className="font-bold text-white text-[10px]">⚓ Persian Gulf</div>
+                <div className="text-[8px] text-slate-400">Strait of Hormuz</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setCenter([51.0, 39.8]);
+                  setZoom(28);
+                  setAutoFollowVessel(false);
+                }}
+                className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-cyan-950/80 border border-slate-700 hover:border-cyan-500/60 text-left transition-all"
+                title="Caspian Sea (North & South Basins)"
+              >
+                <div className="font-bold text-white text-[10px]">🌊 Caspian Sea</div>
+                <div className="text-[8px] text-slate-400">Caspian Basin</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setCenter([35.0, 43.4]);
+                  setZoom(26);
+                  setAutoFollowVessel(false);
+                }}
+                className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-cyan-950/80 border border-slate-700 hover:border-cyan-500/60 text-left transition-all"
+                title="Black Sea & Sea of Azov"
+              >
+                <div className="font-bold text-white text-[10px]">🌊 Black Sea</div>
+                <div className="text-[8px] text-slate-400">Bosphorus & Azov</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setCenter([18.0, 35.0]);
+                  setZoom(16);
+                  setAutoFollowVessel(false);
+                }}
+                className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-cyan-950/80 border border-slate-700 hover:border-cyan-500/60 text-left transition-all"
+                title="Mediterranean Sea"
+              >
+                <div className="font-bold text-white text-[10px]">🌊 Mediterranean</div>
+                <div className="text-[8px] text-slate-400">Gibraltar to Levant</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setCenter([vesselLon, vesselLat]);
+                  setAutoFollowVessel(true);
+                  setZoom(55);
+                }}
+                className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-950/80 border border-slate-700 hover:border-emerald-500/60 text-left transition-all"
+                title="Vessel Position Focus"
+              >
+                <div className="font-bold text-white text-[10px]">⛵ Vessel Fix</div>
+                <div className="text-[8px] text-slate-400">Center on GPS</div>
+              </button>
+            </div>
+          </div>
+
           {/* Online Map Provider Selector (When in Live Mode) */}
           <div className="pb-2 border-b border-slate-800 flex flex-col gap-1.5">
             <div className="flex items-center justify-between">

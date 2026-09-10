@@ -21,7 +21,11 @@ import {
   Eye,
   EyeOff,
   Download,
-  Route as RouteIcon
+  Route as RouteIcon,
+  Copy,
+  Check,
+  Send,
+  Share2
 } from 'lucide-react';
 import { SerialPortStatus } from '../types';
 import { 
@@ -74,6 +78,40 @@ export const Header: React.FC<HeaderProps> = ({
   const [devPinInput, setDevPinInput] = useState<string>('');
   const [devPinError, setDevPinError] = useState<string | null>(null);
   const [isDevUnlocked, setIsDevUnlocked] = useState<boolean>(() => isDeveloperModeUnlocked());
+  const [copiedDeviceId, setCopiedDeviceId] = useState<boolean>(false);
+
+  const handleCopyHeaderDeviceId = async () => {
+    const devId = getLicenseStatus().deviceId;
+    let ok = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(devId);
+        ok = true;
+      }
+    } catch {}
+    if (!ok) {
+      try {
+        const el = document.createElement('textarea');
+        el.value = devId;
+        document.body.appendChild(el);
+        el.select();
+        ok = document.execCommand('copy');
+        document.body.removeChild(el);
+      } catch {}
+    }
+    if (ok) {
+      setCopiedDeviceId(true);
+      setTimeout(() => setCopiedDeviceId(false), 2500);
+    }
+  };
+
+  const handleEmailHeaderDeviceId = () => {
+    const devId = getLicenseStatus().deviceId;
+    handleCopyHeaderDeviceId();
+    const subject = encodeURIComponent(`Mariner Pro-Link Activation Request [${devId}]`);
+    const body = encodeURIComponent(`Hello,\n\nPlease provide the activation key for my Mariner Pro-Link installation.\nDevice ID: ${devId}\nSupport: ${OFFICIAL_SUPPORT_EMAIL}`);
+    window.location.href = `mailto:${OFFICIAL_SUPPORT_EMAIL}?subject=${subject}&body=${body}`;
+  };
 
   // Listen for online / offline events
   useEffect(() => {
@@ -461,13 +499,43 @@ export const Header: React.FC<HeaderProps> = ({
                 </span>
               </div>
 
-              <div className="flex items-center justify-between border-t border-slate-800/80 pt-2.5">
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                  Device ID
-                </span>
-                <span className="text-xs text-cyan-300 font-mono font-bold">
-                  {getLicenseStatus().deviceId}
-                </span>
+              <div className="flex flex-col gap-1.5 border-t border-slate-800/80 pt-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    Device ID
+                  </span>
+                  <span className="text-xs text-cyan-300 font-mono font-bold select-all">
+                    {getLicenseStatus().deviceId}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 justify-end">
+                  <button
+                    type="button"
+                    onClick={handleCopyHeaderDeviceId}
+                    className="px-2 py-1 bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-500/40 rounded text-[10px] font-mono font-bold text-cyan-300 flex items-center gap-1 transition-all"
+                  >
+                    {copiedDeviceId ? (
+                      <>
+                        <Check className="w-3 h-3 text-emerald-400" />
+                        <span className="text-emerald-300">Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3 h-3" />
+                        <span>Copy ID</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleEmailHeaderDeviceId}
+                    className="px-2 py-1 bg-slate-800 hover:bg-slate-750 border border-slate-700 rounded text-[10px] font-mono text-slate-300 flex items-center gap-1 transition-all"
+                    title="Copy and send email to developer"
+                  >
+                    <Mail className="w-3 h-3 text-cyan-400" />
+                    <span>Email Support</span>
+                  </button>
+                </div>
               </div>
 
               <div className="flex items-center justify-between border-t border-slate-800/80 pt-2.5">

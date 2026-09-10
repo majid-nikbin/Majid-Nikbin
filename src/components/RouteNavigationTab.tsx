@@ -761,11 +761,28 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
     showToast(`Auto-Advance Waypoint: ${newState ? 'ENABLED (150m radius)' : 'DISABLED'}`, 'info');
   };
 
-  // Steer guidance calculation
+  // Store last known valid GPS heading to prevent snap glitch during speed dips or brief GPS updates
+  const lastValidGpsHeadingRef = useRef<number | null>(null);
+  if (gps.heading !== null && !isNaN(gps.heading)) {
+    lastValidGpsHeadingRef.current = gps.heading;
+  }
+
+  // Active navigation heading: strictly based on GPS Heading (COG) in Route & Navigation modes
+  const activeNavHeading = useMemo(() => {
+    if (gps.heading !== null && !isNaN(gps.heading)) {
+      return gps.heading;
+    }
+    if (lastValidGpsHeadingRef.current !== null) {
+      return lastValidGpsHeadingRef.current;
+    }
+    // Fallback only if GPS heading has never arrived yet
+    return compass.trueHeading || compass.magneticHeading || 0;
+  }, [gps.heading, compass.trueHeading, compass.magneticHeading]);
+
+  // Steer guidance calculation (based on GPS Course Over Ground)
   const steerInfo = useMemo(() => {
     if (!navSession.isNavigating || navSession.bearingDeg === null) return null;
-    const currentHeading = compass.trueHeading || gps.heading || 0;
-    let diff = (navSession.bearingDeg - currentHeading + 360) % 360;
+    let diff = (navSession.bearingDeg - activeNavHeading + 360) % 360;
     if (diff > 180) diff -= 360;
 
     const absDiff = Math.abs(diff);
@@ -776,7 +793,7 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
     } else {
       return { text: `STEER LEFT ${absDiff.toFixed(0)}°`, color: 'text-amber-400', dir: 'left', deg: absDiff };
     }
-  }, [navSession.isNavigating, navSession.bearingDeg, compass.trueHeading, gps.heading]);
+  }, [navSession.isNavigating, navSession.bearingDeg, activeNavHeading]);
 
   return (
     <div className="flex flex-col gap-6 w-full animate-fadeIn">
@@ -811,26 +828,32 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
             <div className="flex flex-col">
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-mono font-bold tracking-widest text-cyan-400 uppercase">
-                  VESSEL HEADING (HDT / HDG)
+                  NAVIGATION HEADING (GPS COG / HDT)
                 </span>
                 <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono border ${
-                  compass.calibrated 
+                  (gps.heading !== null && !isNaN(gps.heading))
                     ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300' 
+                    : lastValidGpsHeadingRef.current !== null
+                    ? 'bg-cyan-950/80 border-cyan-500/50 text-cyan-300'
                     : 'bg-slate-800 border-slate-700 text-slate-300'
                 }`}>
-                  {compass.calibrated ? 'CALIBRATED' : 'LIVE SENSOR'}
+                  {(gps.heading !== null && !isNaN(gps.heading)) 
+                    ? 'GPS COG ACTIVE' 
+                    : lastValidGpsHeadingRef.current !== null 
+                    ? 'GPS COG (HOLD)' 
+                    : 'COMPASS FALLBACK'}
                 </span>
               </div>
 
               <div className="flex items-baseline gap-2.5 mt-0.5">
                 <span className="text-3xl sm:text-4xl font-black font-mono text-white tracking-tight">
-                  {(compass.trueHeading || 0).toFixed(1)}°
+                  {activeNavHeading.toFixed(1)}°
                 </span>
                 <span className="px-2 py-0.5 rounded-lg bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-mono font-black">
-                  {headingToCardinal(compass.trueHeading || 0)}
+                  {headingToCardinal(activeNavHeading)}
                 </span>
                 <span className="text-xs font-mono text-slate-400 hidden sm:inline">
-                  (Mag: {(compass.magneticHeading || 0).toFixed(1)}°)
+                  (Compass: {(compass.trueHeading || 0).toFixed(1)}°)
                 </span>
               </div>
             </div>
@@ -875,7 +898,7 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
             <div 
               className="absolute top-0 bottom-0 z-30 flex flex-col items-center pointer-events-none transition-all duration-150"
               style={{
-                left: `calc(50% + ${((((navSession.bearingDeg - (compass.trueHeading || 0) + 540) % 360) - 180) * 3.5)}px)`
+                left: `calc(50% + ${((((navSession.bearingDeg - activeNavHeading + 540) % 360) - 180) * 3.5)}px)`
               }}
             >
               <div className="w-0 h-0 border-x-4 border-x-transparent border-b-[6px] border-b-cyan-400" />
@@ -889,7 +912,7 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
           <div 
             className="absolute top-0 bottom-0 flex items-center transition-transform duration-100 ease-out"
             style={{
-              transform: `translateX(${-((compass.trueHeading || 0) * 3.5)}px)`,
+              transform: `translateX(${-(activeNavHeading * 3.5)}px)`,
               width: `${360 * 3.5 * 3}px`,
               left: '50%'
             }}

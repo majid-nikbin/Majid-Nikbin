@@ -9,7 +9,8 @@ import {
   AlertCircle, 
   Lock, 
   Send,
-  Key
+  Key,
+  Share2
 } from 'lucide-react';
 import { 
   getOrCreateDeviceId, 
@@ -40,14 +41,88 @@ export const ActivationModal: React.FC<ActivationModalProps> = ({
   const [passcodeInput, setPasscodeInput] = useState<string>('');
   const [passcodeError, setPasscodeError] = useState<string | null>(null);
 
-  // Copy Device ID to clipboard
-  const handleCopyDeviceId = () => {
-    navigator.clipboard.writeText(deviceId);
-    setCopiedId(true);
-    setTimeout(() => setCopiedId(false), 2500);
+  // Robust clipboard copy with fallback for all mobile browsers/iframes
+  const copyToClipboard = async (text: string): Promise<boolean> => {
+    let success = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        success = true;
+      }
+    } catch (err) {
+      console.warn('navigator.clipboard failed, attempting execCommand fallback:', err);
+    }
+
+    if (!success) {
+      try {
+        const el = document.createElement('textarea');
+        el.value = text;
+        el.setAttribute('readonly', '');
+        el.style.position = 'fixed';
+        el.style.left = '-9999px';
+        el.style.top = '0';
+        el.style.opacity = '0';
+        document.body.appendChild(el);
+        el.focus();
+        el.select();
+        el.setSelectionRange(0, 99999);
+        success = document.execCommand('copy');
+        document.body.removeChild(el);
+      } catch (e) {
+        console.error('execCommand fallback failed:', e);
+      }
+    }
+    return success;
   };
 
-  // Submit entered activation key
+  // Copy Device ID to clipboard
+  const handleCopyDeviceId = async () => {
+    const ok = await copyToClipboard(deviceId);
+    if (ok) {
+      setCopiedId(true);
+      setTimeout(() => setCopiedId(false), 3000);
+    }
+  };
+
+  // Copy both Device ID and full email text, then open email client
+  const [copyEmailSuccess, setCopyEmailSuccess] = useState<boolean>(false);
+  const handleSendEmail = async () => {
+    const emailSubject = `Mariner Pro-Link Activation Request [${deviceId}]`;
+    const emailBody = `Hello,\n\nPlease provide the activation key for my Mariner Pro-Link installation.\n\nMy Device ID:\n${deviceId}\n\nThank you.\nSupport: ${developerEmail}`;
+    
+    // First copy complete text to clipboard so user never loses it on mobile
+    await copyToClipboard(`Device ID: ${deviceId}\n\nRecipient: ${developerEmail}\n\n${emailBody}`);
+    setCopyEmailSuccess(true);
+    setTimeout(() => setCopyEmailSuccess(false), 4000);
+
+    const subject = encodeURIComponent(emailSubject);
+    const body = encodeURIComponent(emailBody);
+    
+    // Open mailto link
+    try {
+      const mailtoUrl = `mailto:${developerEmail}?subject=${subject}&body=${body}`;
+      window.location.href = mailtoUrl;
+    } catch (e) {
+      console.warn('Could not launch mailto protocol:', e);
+    }
+  };
+
+  // Mobile Web Share API support (WhatsApp, Telegram, Gmail, SMS, etc.)
+  const [canShare] = useState<boolean>(() => typeof navigator !== 'undefined' && !!navigator.share);
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Mariner Pro-Link Device ID',
+          text: `Mariner Pro-Link Activation Request\nDevice ID: ${deviceId}\nDeveloper Email: ${developerEmail}`
+        });
+      } catch (e) {
+        console.warn('Share dismissed or failed:', e);
+      }
+    } else {
+      handleCopyDeviceId();
+    }
+  };
   const handleActivate = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
@@ -63,15 +138,6 @@ export const ActivationModal: React.FC<ActivationModalProps> = ({
     } else {
       setErrorMessage(result.message);
     }
-  };
-
-  // Send request email to developer
-  const handleSendEmail = () => {
-    const subject = encodeURIComponent(`Mariner Pro-Link Activation Request [${deviceId}]`);
-    const body = encodeURIComponent(
-      `Hello,\n\nPlease provide the activation key for my Mariner Pro-Link installation.\n\nMy Device ID:\n${deviceId}\n\nThank you.`
-    );
-    window.location.href = `mailto:${developerEmail}?subject=${subject}&body=${body}`;
   };
 
   // Secret developer tap trigger (clicking lock icon or version badge 5 times prompts passcode)
@@ -103,28 +169,37 @@ export const ActivationModal: React.FC<ActivationModalProps> = ({
     }
   };
 
+  const [copiedEmailOnly, setCopiedEmailOnly] = useState<boolean>(false);
+  const handleCopyEmailOnly = async () => {
+    const ok = await copyToClipboard(developerEmail);
+    if (ok) {
+      setCopiedEmailOnly(true);
+      setTimeout(() => setCopiedEmailOnly(false), 2500);
+    }
+  };
+
   return (
     <div 
       id="activation-overlay" 
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/90 backdrop-blur-md overflow-y-auto"
       dir="ltr"
     >
       <div className="w-full max-w-lg bg-slate-900 border border-cyan-500/30 rounded-2xl shadow-2xl overflow-hidden my-auto text-slate-100">
         
         {/* Header */}
-        <div className="bg-gradient-to-r from-cyan-950 via-slate-900 to-blue-950 p-5 sm:p-6 border-b border-cyan-500/20 flex items-center justify-between">
+        <div className="bg-gradient-to-r from-cyan-950 via-slate-900 to-blue-950 p-4 sm:p-6 border-b border-cyan-500/20 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={handleSecretIconTap}
               title="Mariner Security"
-              className="p-3 bg-cyan-500/10 border border-cyan-400/30 rounded-xl text-cyan-400 hover:bg-cyan-500/20 transition-all cursor-pointer"
+              className="p-2.5 sm:p-3 bg-cyan-500/10 border border-cyan-400/30 rounded-xl text-cyan-400 hover:bg-cyan-500/20 transition-all cursor-pointer"
             >
-              <Lock className="w-6 h-6" />
+              <Lock className="w-5 h-5 sm:w-6 sm:h-6" />
             </button>
             <div>
-              <h2 className="text-lg font-bold text-white tracking-wide">Mariner Pro-Link Activation</h2>
-              <p className="text-xs text-cyan-300/80 mt-0.5">Marine Navigation & Electronic Heading System</p>
+              <h2 className="text-base sm:text-lg font-bold text-white tracking-wide">Mariner Pro-Link Activation</h2>
+              <p className="text-[11px] sm:text-xs text-cyan-300/80 mt-0.5">Marine Navigation & Electronic Heading System</p>
             </div>
           </div>
           
@@ -137,37 +212,52 @@ export const ActivationModal: React.FC<ActivationModalProps> = ({
           </button>
         </div>
 
-        <div className="p-5 sm:p-6 flex flex-col gap-6">
+        <div className="p-4 sm:p-6 flex flex-col gap-5">
 
-          {/* Device ID Display Card */}
-          <div className="bg-slate-950/80 p-4 rounded-xl border border-slate-800 flex flex-col gap-3">
+          {/* Device ID Display & Transmission Card */}
+          <div className="bg-slate-950/90 p-4 rounded-xl border border-slate-800 flex flex-col gap-3.5 shadow-inner">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
+              <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
                 <Smartphone className="w-4 h-4 text-cyan-400" />
-                Hardware Device ID:
+                <span>Your Hardware Device ID:</span>
               </span>
-              <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 font-mono">
+              <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 font-mono font-bold">
                 Unique Device Token
               </span>
             </div>
 
-            <div className="flex items-center justify-between bg-slate-900/90 px-4 py-3 rounded-lg border border-cyan-500/40">
-              <span className="font-mono text-base sm:text-lg font-bold text-cyan-300 tracking-wider select-all">
-                {deviceId}
-              </span>
+            {/* Input with 1-Tap Select & Copy Button */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  readOnly
+                  value={deviceId}
+                  onClick={(e) => (e.target as HTMLInputElement).select()}
+                  onFocus={(e) => e.target.select()}
+                  className="w-full bg-slate-900 px-3.5 py-2.5 rounded-lg border border-cyan-500/50 font-mono text-base font-bold text-cyan-300 tracking-wider text-center sm:text-left select-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-cyan-400"
+                  title="Click or tap to select all"
+                />
+              </div>
+
               <button
                 type="button"
                 onClick={handleCopyDeviceId}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 rounded-md text-xs font-bold transition-all"
+                className={`px-4 py-2.5 rounded-lg border text-xs font-bold font-mono flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 ${
+                  copiedId
+                    ? 'bg-emerald-600 border-emerald-500 text-white'
+                    : 'bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-200 border-cyan-500/60'
+                }`}
+                title="Copy Device ID to clipboard"
               >
                 {copiedId ? (
                   <>
-                    <Check className="w-3.5 h-3.5 text-green-400" />
-                    <span className="text-green-400">Copied</span>
+                    <Check className="w-4 h-4 text-white" />
+                    <span>Copied</span>
                   </>
                 ) : (
                   <>
-                    <Copy className="w-3.5 h-3.5" />
+                    <Copy className="w-4 h-4 text-cyan-300" />
                     <span>Copy ID</span>
                   </>
                 )}
@@ -175,20 +265,63 @@ export const ActivationModal: React.FC<ActivationModalProps> = ({
             </div>
 
             <p className="text-[11px] text-slate-400 leading-relaxed">
-              To activate this software, please send your unique Device ID to support. You will receive a permanent activation key.
+              To activate your software, copy the unique Device ID above and email it to technical support to obtain your permanent lifetime activation key.
             </p>
 
-            {/* Email Request Button */}
-            <button
-              type="button"
-              onClick={handleSendEmail}
-              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 hover:border-cyan-500/50 rounded-lg text-xs font-medium transition-all group"
-            >
-              <Mail className="w-4 h-4 text-cyan-400 group-hover:scale-110 transition-transform" />
-              <span>Email Activation Request to:</span>
-              <span className="font-mono text-cyan-300 text-[11px] font-bold">{developerEmail}</span>
-              <Send className="w-3.5 h-3.5 ml-auto text-slate-400" />
-            </button>
+            {/* Action Buttons: Copy & Email, Share, and Copy Email */}
+            <div className="flex flex-col gap-2 pt-1 border-t border-slate-800/80">
+              {/* Primary: Copy & Launch Email */}
+              <button
+                type="button"
+                onClick={handleSendEmail}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-3.5 bg-gradient-to-r from-blue-700 to-cyan-700 hover:from-blue-600 hover:to-cyan-600 text-white border border-cyan-400/50 rounded-lg text-xs font-bold transition-all shadow-lg active:scale-98"
+                title="Copies request to clipboard and opens your email client"
+              >
+                <Mail className="w-4 h-4 text-cyan-200 shrink-0" />
+                <span>Copy & Email Device ID</span>
+                <Send className="w-3.5 h-3.5 ml-auto text-cyan-200" />
+              </button>
+
+              {copyEmailSuccess && (
+                <div className="p-2 rounded-lg bg-emerald-950/80 border border-emerald-500/60 text-[11px] text-emerald-300 text-center font-mono">
+                  ✓ Device ID and activation request copied to clipboard! You can paste it into email or chat.
+                </div>
+              )}
+
+              {/* Secondary Row: Share API & Copy Email Address */}
+              <div className="flex flex-wrap items-center gap-2">
+                {canShare && (
+                  <button
+                    type="button"
+                    onClick={handleShare}
+                    className="flex-1 py-2 px-3 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 hover:border-cyan-500/50 rounded-lg text-[11px] font-medium transition-all flex items-center justify-center gap-1.5"
+                    title="Share via WhatsApp, Telegram, Gmail, SMS, etc."
+                  >
+                    <Share2 className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Share Device ID</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleCopyEmailOnly}
+                  className="flex-1 py-2 px-3 bg-slate-800 hover:bg-slate-750 text-slate-300 border border-slate-700 hover:border-cyan-500/50 rounded-lg text-[11px] font-mono transition-all flex items-center justify-center gap-1.5"
+                  title="Copy developer email address"
+                >
+                  {copiedEmailOnly ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className="text-emerald-300 font-bold">Email Copied</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3 h-3 text-slate-400" />
+                      <span>{developerEmail}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Activation Key Form */}
