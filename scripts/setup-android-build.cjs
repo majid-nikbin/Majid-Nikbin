@@ -86,65 +86,112 @@ if (fs.existsSync(manifestPath)) {
   }
 }
 
-// 3. Persistent Fixed Keystore
+// 3. Persistent Fixed Keystore Setup
 const rootKeystore = path.join(rootDir, 'mariner-release.keystore');
 const b64Keystore = path.join(rootDir, 'mariner-keystore.b64');
-const targetKeystore = path.join(androidDir, 'mariner-release.keystore');
+const androidKeystore = path.join(androidDir, 'mariner-release.keystore');
+const appKeystore = path.join(appDir, 'mariner-release.keystore');
 
-if (!fs.existsSync(rootKeystore) && fs.existsSync(b64Keystore)) {
+let keystoreBuffer = null;
+if (fs.existsSync(rootKeystore) && fs.statSync(rootKeystore).size > 0) {
+  keystoreBuffer = fs.readFileSync(rootKeystore);
+} else if (fs.existsSync(b64Keystore) && fs.statSync(b64Keystore).size > 0) {
   const b64Data = fs.readFileSync(b64Keystore, 'utf8').trim();
-  fs.writeFileSync(rootKeystore, Buffer.from(b64Data, 'base64'));
+  keystoreBuffer = Buffer.from(b64Data, 'base64');
 }
 
-if (fs.existsSync(rootKeystore)) {
-  fs.copyFileSync(rootKeystore, targetKeystore);
-  console.log('==> Persistent keystore copied to android/mariner-release.keystore');
+if (keystoreBuffer) {
+  fs.writeFileSync(rootKeystore, keystoreBuffer);
+  fs.writeFileSync(androidKeystore, keystoreBuffer);
+  fs.writeFileSync(appKeystore, keystoreBuffer);
+  console.log('==> Persistent keystore verified and placed at android/app/mariner-release.keystore');
+} else {
+  console.warn('==> Keystore file not found, will build standard debug signed APK.');
 }
 
-// 4. Update android/app/build.gradle
+// 4. Generate Clean & Robust android/app/build.gradle
 const buildGradlePath = path.join(appDir, 'build.gradle');
 if (fs.existsSync(buildGradlePath)) {
-  let gradle = fs.readFileSync(buildGradlePath, 'utf8');
+  const cleanBuildGradle = `apply plugin: 'com.android.application'
 
-  // Strip x86 emulator binaries (saves ~10MB)
-  if (!gradle.includes('ndk {')) {
-    gradle = gradle.replace(
-      'defaultConfig {',
-      "defaultConfig {\n        ndk { abiFilters 'armeabi-v7a', 'arm64-v8a' }"
-    );
-  }
-
-  // Dynamic VersionCode & VersionName
-  gradle = gradle.replace(/versionCode \d+/g, `versionCode ${runNumber}`);
-  gradle = gradle.replace(/versionName "[^"]*"/g, `versionName "1.0.${runNumber}"`);
-
-  // Configure persistent signing
-  const signingConfig = `
-    signingConfigs {
-        release {
-            storeFile file('../../mariner-release.keystore')
-            storePassword 'mariner1234'
-            keyAlias 'mariner'
-            keyPassword 'mariner1234'
+android {
+    namespace "com.mariner.pro"
+    compileSdk rootProject.ext.compileSdkVersion
+    defaultConfig {
+        ndk { abiFilters 'armeabi-v7a', 'arm64-v8a' }
+        applicationId "com.mariner.pro"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode ${runNumber}
+        versionName "1.0.${runNumber}"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
-`;
-
-  if (!gradle.includes('signingConfigs {')) {
-    gradle = gradle.replace('android {', `android {${signingConfig}`);
-  }
-
-  gradle = gradle.replace(
-    'buildTypes {',
-    'buildTypes {\n        debug {\n            signingConfig signingConfigs.release\n        }'
-  );
-  gradle = gradle.replace(
-    'release {',
-    'release {\n            signingConfig signingConfigs.release'
-  );
-
-  fs.writeFileSync(buildGradlePath, gradle, 'utf8');
-  console.log(`==> Updated build.gradle: versionCode ${runNumber}, versionName 1.0.${runNumber}, and persistent Keystore signing.`);
+    signingConfigs {
+        release {
+            def keystoreFile = file('mariner-release.keystore')
+            if (keystoreFile.exists()) {
+                storeFile keystoreFile
+                storePassword 'mariner1234'
+                keyAlias 'mariner'
+                keyPassword 'mariner1234'
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            def keystoreFile = file('mariner-release.keystore')
+            if (keystoreFile.exists()) {
+                signingConfig signingConfigs.release
+            }
+        }
+        release {
+            def keystoreFile = file('mariner-release.keystore')
+            if (keystoreFile.exists()) {
+                signingConfig signingConfigs.release
+            }
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
 }
 
-console.log('==> Android setup complete!');
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}
+`;
+
+  fs.writeFileSync(buildGradlePath, cleanBuildGradle, 'utf8');
+  console.log(`==> Successfully updated android/app/build.gradle: versionCode ${runNumber}, versionName 1.0.${runNumber}, and crash-proof persistent signing.`);
+}
+
+console.log('==> Android setup completed successfully!');

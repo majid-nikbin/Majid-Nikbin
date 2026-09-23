@@ -74,12 +74,15 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --no-build-cache
+          ./gradlew assembleDebug --no-daemon --stacktrace
+          mkdir -p ../dist-apk
+          cp app/build/outputs/apk/debug/app-debug.apk ../dist-apk/app-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk "../dist-apk/Mariner-Pro-v${{ github.run_number }}.apk"
 
       - name: Upload Ready-to-Install APK
         uses: actions/upload-artifact@v4
         with:
           name: Mariner-Pro-Offline-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: dist-apk/*.apk
           retention-days: 30
 
