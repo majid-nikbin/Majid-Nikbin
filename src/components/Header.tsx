@@ -210,15 +210,11 @@ export const Header: React.FC<HeaderProps> = ({
             className="flex items-center gap-3 cursor-pointer group select-none transition-transform active:scale-98"
             title="Click to view Mariner Pro info, developer details & email"
           >
-            <div
-              className={`p-2 rounded-xl border flex items-center justify-center transition-all ${
-                isNightMode
-                  ? 'bg-red-950 border-red-800 text-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)] group-hover:border-red-500'
-                  : 'bg-cyan-950/80 border-cyan-500/40 text-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.25)] group-hover:border-cyan-400 group-hover:shadow-[0_0_20px_rgba(6,182,212,0.4)]'
-              }`}
-            >
-              <Anchor className="w-5 h-5 animate-pulse" />
-            </div>
+            <img
+              src="./app-icon.jpg"
+              alt="Mariner Pro"
+              className="w-9 h-9 rounded-xl object-cover border border-cyan-500/40 shadow-[0_0_15px_rgba(6,182,212,0.25)] group-hover:border-cyan-400 group-hover:shadow-[0_0_20px_rgba(6,182,212,0.4)] transition-all"
+            />
 
             <div>
               <div className="flex items-center gap-2">
@@ -418,15 +414,11 @@ export const Header: React.FC<HeaderProps> = ({
             {/* Modal Header */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-3">
-                <div
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg ${
-                    isNightMode
-                      ? 'bg-red-600 text-white shadow-red-900/50'
-                      : 'bg-cyan-500 text-slate-950 shadow-cyan-900/50'
-                  }`}
-                >
-                  <Anchor className="w-5 h-5" />
-                </div>
+                <img
+                  src="./app-icon.jpg"
+                  alt="Mariner Pro-Link"
+                  className="w-11 h-11 rounded-xl object-cover shadow-lg border border-slate-700"
+                />
                 <div>
                   <h3 className="text-base font-bold text-white tracking-wide">
                     Mariner Pro-Link
