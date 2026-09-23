@@ -57,11 +57,14 @@ jobs:
         uses: actions/deploy-pages@v4
         continue-on-error: true
 
-      - name: Install & Configure Capacitor
+      - name: Configure & Sync Capacitor Android
         run: |
-          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/app @capacitor/browser
-          npx cap init "Mariner Pro" "com.mariner.pro" --web-dir "dist"
-          npx cap add android
+          if [ ! -f "capacitor.config.json" ] && [ ! -f "capacitor.config.ts" ]; then
+            npx cap init "Mariner Pro" "com.mariner.pro" --web-dir "dist"
+          fi
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
           npx cap sync android
 
       - name: Configure Android Permissions, Adaptive Icons, Versioning & Keystore Signing
