@@ -166,6 +166,15 @@ class SerialService {
         flowControl: 'none',
       });
 
+      // Assert DTR and RTS to ensure USB-UART adapter stays in active transmission mode
+      if (this.port.setSignals) {
+        try {
+          await this.port.setSignals({ dataTerminalReady: true, requestToSend: true });
+        } catch (e) {
+          // Non-blocking if hardware adapter ignores control signals
+        }
+      }
+
       this.isUsingWebUsb = false;
       this.status = {
         connected: true,
@@ -359,12 +368,14 @@ class SerialService {
     // If connected via WebSerial
     if (this.port && this.port.writable) {
       try {
-        const textEncoder = new TextEncoderStream();
-        const writableStreamClosed = textEncoder.readable.pipeTo(this.port.writable);
-        const writer = textEncoder.writable.getWriter();
-        await writer.write(payload);
-        await writer.close();
-        await writableStreamClosed;
+        const encoder = new TextEncoder();
+        const data = encoder.encode(payload);
+        const writer = this.port.writable.getWriter();
+        try {
+          await writer.write(data);
+        } finally {
+          writer.releaseLock();
+        }
         return true;
       } catch (err: any) {
         console.error('Serial write failed:', err);

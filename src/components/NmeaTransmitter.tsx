@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Cable, 
   Play, 
@@ -52,23 +52,51 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
     (window.location.protocol === 'http:' && window.location.hostname === 'localhost')
   );
 
+  // Keep latest sensor values in refs to avoid restarting the interval timer on every sensor tick
+  const latestGpsRef = useRef(gps);
+  const latestCompassRef = useRef(compass);
+  const latestConfigRef = useRef(config);
+
+  useEffect(() => {
+    latestGpsRef.current = gps;
+    latestCompassRef.current = compass;
+    latestConfigRef.current = config;
+  }, [gps, compass, config]);
+
   // Generate real-time preview of sentences
   useEffect(() => {
     const generated = generateNmeaSentences(gps, compass, config);
     setLiveSentences(generated);
   }, [gps, compass, config]);
 
-  // Transmit interval loop when enabled & port connected
+  // Transmit interval loop when enabled & port connected (rock-solid, does not reset on compass movements)
   useEffect(() => {
     if (!isTransmitting || !serialStatus.connected) return;
 
+    // Optional WakeLock during active transmission so phone doesn't sleep
+    let wakeLockSentinel: any = null;
+    if ('wakeLock' in navigator) {
+      (navigator as any).wakeLock.request('screen').then((sentinel: any) => {
+        wakeLockSentinel = sentinel;
+      }).catch(() => {});
+    }
+
     const interval = setInterval(async () => {
-      const sentences = generateNmeaSentences(gps, compass, config);
+      const sentences = generateNmeaSentences(
+        latestGpsRef.current,
+        latestCompassRef.current,
+        latestConfigRef.current
+      );
       await serialService.writeSentences(sentences);
     }, config.intervalMs);
 
-    return () => clearInterval(interval);
-  }, [isTransmitting, serialStatus.connected, gps, compass, config]);
+    return () => {
+      clearInterval(interval);
+      if (wakeLockSentinel) {
+        wakeLockSentinel.release().catch(() => {});
+      }
+    };
+  }, [isTransmitting, serialStatus.connected, config.intervalMs]);
 
   // Click on "Connect USB OTG" (Direct hardware connection in Chrome / WebUSB)
   const handleConnectUsbClick = async () => {

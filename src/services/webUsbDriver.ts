@@ -238,7 +238,12 @@ export class WebUsbDriver {
     try {
       const encoder = new TextEncoder();
       const data = encoder.encode(text);
-      await this.device.transferOut(this.endpointOut, data);
+      // Transfer in maximum 64-byte packets to match USB endpoint packet size and prevent FIFO overflow
+      const chunkSize = 64;
+      for (let offset = 0; offset < data.length; offset += chunkSize) {
+        const chunk = data.subarray(offset, Math.min(offset + chunkSize, data.length));
+        await this.device.transferOut(this.endpointOut, chunk);
+      }
       return true;
     } catch (err) {
       console.warn('WebUSB write error:', err);
