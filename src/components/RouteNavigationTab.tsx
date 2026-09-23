@@ -761,23 +761,43 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
     showToast(`Auto-Advance Waypoint: ${newState ? 'ENABLED (150m radius)' : 'DISABLED'}`, 'info');
   };
 
+  // Heading Reference Mode: 'gps' (Course Over Ground, default for route & nav) or 'compass'
+  const [headingMode, setHeadingMode] = useState<'gps' | 'compass'>(() => {
+    try {
+      const saved = localStorage.getItem('mariner_chart_heading_mode_v2');
+      if (saved === 'gps' || saved === 'compass') return saved;
+    } catch (e) {}
+    return 'gps';
+  });
+
+  const handleHeadingModeChange = (mode: 'gps' | 'compass') => {
+    setHeadingMode(mode);
+    try {
+      localStorage.setItem('mariner_chart_heading_mode_v2', mode);
+    } catch (e) {}
+    showToast(`Heading Reference: ${mode === 'gps' ? 'GPS COG (Course Over Ground)' : 'Magnetic Compass Sensor'}`, 'info');
+  };
+
   // Store last known valid GPS heading to prevent snap glitch during speed dips or brief GPS updates
   const lastValidGpsHeadingRef = useRef<number | null>(null);
   if (gps.heading !== null && !isNaN(gps.heading)) {
     lastValidGpsHeadingRef.current = gps.heading;
   }
 
-  // Active navigation heading: strictly based on GPS Heading (COG) in Route & Navigation modes
+  // Active navigation heading: GPS COG by default with user-configurable Compass selection
   const activeNavHeading = useMemo(() => {
-    if (gps.heading !== null && !isNaN(gps.heading)) {
-      return gps.heading;
+    if (headingMode === 'gps') {
+      if (gps.heading !== null && !isNaN(gps.heading)) {
+        return gps.heading;
+      }
+      if (lastValidGpsHeadingRef.current !== null) {
+        return lastValidGpsHeadingRef.current;
+      }
+      return compass.trueHeading || compass.magneticHeading || 0;
+    } else {
+      return compass.trueHeading || compass.magneticHeading || (gps.heading !== null && !isNaN(gps.heading) ? gps.heading : 0);
     }
-    if (lastValidGpsHeadingRef.current !== null) {
-      return lastValidGpsHeadingRef.current;
-    }
-    // Fallback only if GPS heading has never arrived yet
-    return compass.trueHeading || compass.magneticHeading || 0;
-  }, [gps.heading, compass.trueHeading, compass.magneticHeading]);
+  }, [headingMode, gps.heading, compass.trueHeading, compass.magneticHeading]);
 
   // Steer guidance calculation (based on GPS Course Over Ground)
   const steerInfo = useMemo(() => {
@@ -826,22 +846,57 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
             </div>
 
             <div className="flex flex-col">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[10px] font-mono font-bold tracking-widest text-cyan-400 uppercase">
-                  NAVIGATION HEADING (GPS COG / HDT)
+                  NAVIGATION HEADING
                 </span>
+                
+                {/* Heading Source Toggle (GPS COG vs Compass) */}
+                <div className="flex items-center bg-slate-950/80 p-0.5 rounded-lg border border-slate-700 text-[10px] font-mono shadow">
+                  <button
+                    type="button"
+                    onClick={() => handleHeadingModeChange('gps')}
+                    className={`px-2 py-0.5 rounded font-bold transition-all flex items-center gap-1 ${
+                      headingMode === 'gps'
+                        ? 'bg-cyan-600 text-white shadow'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Course Over Ground from GPS (Default for Navigation & Routes)"
+                  >
+                    <Radio className="w-2.5 h-2.5" />
+                    <span>GPS COG</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleHeadingModeChange('compass')}
+                    className={`px-2 py-0.5 rounded font-bold transition-all flex items-center gap-1 ${
+                      headingMode === 'compass'
+                        ? 'bg-amber-600 text-white shadow'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Internal Magnetic Compass Sensor"
+                  >
+                    <Compass className="w-2.5 h-2.5" />
+                    <span>COMPASS</span>
+                  </button>
+                </div>
+
                 <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono border ${
-                  (gps.heading !== null && !isNaN(gps.heading))
-                    ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300' 
-                    : lastValidGpsHeadingRef.current !== null
-                    ? 'bg-cyan-950/80 border-cyan-500/50 text-cyan-300'
-                    : 'bg-slate-800 border-slate-700 text-slate-300'
+                  headingMode === 'gps'
+                    ? ((gps.heading !== null && !isNaN(gps.heading))
+                      ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300' 
+                      : lastValidGpsHeadingRef.current !== null
+                      ? 'bg-cyan-950/80 border-cyan-500/50 text-cyan-300'
+                      : 'bg-slate-800 border-slate-700 text-slate-300')
+                    : 'bg-amber-950/80 border-amber-500/50 text-amber-300'
                 }`}>
-                  {(gps.heading !== null && !isNaN(gps.heading)) 
-                    ? 'GPS COG ACTIVE' 
-                    : lastValidGpsHeadingRef.current !== null 
-                    ? 'GPS COG (HOLD)' 
-                    : 'COMPASS FALLBACK'}
+                  {headingMode === 'gps'
+                    ? ((gps.heading !== null && !isNaN(gps.heading)) 
+                      ? 'GPS COG ACTIVE' 
+                      : lastValidGpsHeadingRef.current !== null 
+                      ? 'GPS COG (HOLD)' 
+                      : 'COMPASS FALLBACK')
+                    : 'COMPASS SENSOR'}
                 </span>
               </div>
 
@@ -1206,6 +1261,8 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
             setTargetWaypointId(wp.id);
             handleStartNavigation(wp);
           }}
+          headingMode={headingMode}
+          onHeadingModeChange={handleHeadingModeChange}
         />
       </div>
 

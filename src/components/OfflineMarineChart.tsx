@@ -26,7 +26,12 @@ import {
   Flame,
   Zap,
   Activity,
-  Wind
+  Wind,
+  Download,
+  HardDrive,
+  Trash2,
+  CheckCircle2,
+  Database
 } from 'lucide-react';
 import { GpsData, CompassData, MarineRoute, Waypoint, NavigationSession } from '../types';
 import { 
@@ -61,7 +66,11 @@ import {
   LIVE_TILE_PROVIDERS,
   renderLiveMapTiles,
   getSavedCustomTileUrl,
-  saveCustomTileUrl
+  saveCustomTileUrl,
+  getCachedTileStats,
+  clearTileCache,
+  preCacheAreaTiles,
+  subscribeTileCacheUpdates
 } from '../utils/marineTileLoader';
 
 interface OfflineMarineChartProps {
@@ -74,6 +83,8 @@ interface OfflineMarineChartProps {
   onMapClickAddWaypoint?: (lat: number, lon: number) => void;
   isAddWaypointMode?: boolean;
   onSelectWaypoint?: (wp: Waypoint) => void;
+  headingMode?: 'gps' | 'compass';
+  onHeadingModeChange?: (mode: 'gps' | 'compass') => void;
 }
 
 export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
@@ -86,9 +97,29 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
   onMapClickAddWaypoint,
   isAddWaypointMode = false,
   onSelectWaypoint,
+  headingMode: headingModeProp,
+  onHeadingModeChange: onHeadingModeChangeProp,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Heading mode state: 'gps' (Course Over Ground, default) or 'compass' (Magnetic sensor)
+  const [internalHeadingMode, setInternalHeadingMode] = useState<'gps' | 'compass'>(() => {
+    try {
+      const saved = localStorage.getItem('mariner_chart_heading_mode_v2');
+      if (saved === 'gps' || saved === 'compass') return saved;
+    } catch (e) {}
+    return 'gps';
+  });
+
+  const activeHeadingMode = headingModeProp ?? internalHeadingMode;
+  const setHeadingMode = (mode: 'gps' | 'compass') => {
+    setInternalHeadingMode(mode);
+    try {
+      localStorage.setItem('mariner_chart_heading_mode_v2', mode);
+    } catch (e) {}
+    if (onHeadingModeChangeProp) onHeadingModeChangeProp(mode);
+  };
 
   // Vessel real or reference coordinates (Default Kish Island area)
   const vesselLon = gps.longitude !== null ? gps.longitude : 53.9900;
@@ -107,12 +138,32 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
   // Full Screen State
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
-  // Map Mode: Offline Marine Vector vs Online Live Web Tiles
-  const [mapMode, setMapMode] = useState<'offline' | 'live'>('offline');
-  const [liveProvider, setLiveProvider] = useState<LiveTileProvider>('google_hybrid');
+  // Map Mode: High-Resolution Marine Tiles (Google/OSM/ESRI with persistent offline cache) vs Pure Vector Nautical Chart
+  const [mapMode, setMapMode] = useState<'high_res' | 'vector'>(() => {
+    try {
+      const saved = localStorage.getItem('mariner_map_mode_v3');
+      if (saved === 'high_res' || saved === 'vector') return saved;
+    } catch (e) {}
+    return 'high_res';
+  });
+
+  const [liveProvider, setLiveProvider] = useState<LiveTileProvider>(() => {
+    try {
+      const saved = localStorage.getItem('mariner_live_provider_v3') as LiveTileProvider;
+      if (saved && LIVE_TILE_PROVIDERS.some(p => p.id === saved)) return saved;
+    } catch (e) {}
+    return 'google_hybrid';
+  });
+
   const [customTileUrlInput, setCustomTileUrlInput] = useState<string>(() => getSavedCustomTileUrl());
   const [showLiveSeamarks, setShowLiveSeamarks] = useState<boolean>(true);
   const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  // Persistent Offline Tile Cache Statistics & Pre-caching state
+  const [cacheStats, setCacheStats] = useState<{ count: number; estimatedMb: number }>({ count: 0, estimatedMb: 0 });
+  const [isPreCaching, setIsPreCaching] = useState<boolean>(false);
+  const [preCacheProgress, setPreCacheProgress] = useState<{ done: number; total: number } | null>(null);
+  const [preCacheSuccess, setPreCacheSuccess] = useState<string | null>(null);
 
   // Layer toggles
   const [showBathymetry, setShowBathymetry] = useState<boolean>(true);
@@ -140,6 +191,10 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
   const centerRef = useRef<[number, number]>(center);
   const animPhaseRef = useRef<number>(0);
   const renderTriggerRef = useRef<number>(0);
+  const lastValidGpsHeadingRef = useRef<number | null>(null);
+  if (gps.heading !== null && !isNaN(gps.heading)) {
+    lastValidGpsHeadingRef.current = gps.heading;
+  }
 
   // Keep zoom and center refs in sync
   useEffect(() => {
@@ -150,13 +205,33 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
     centerRef.current = center;
   }, [center]);
 
-  // Monitor network connectivity
+  // Persist Map Mode & Provider
+  useEffect(() => {
+    try {
+      localStorage.setItem('mariner_map_mode_v3', mapMode);
+    } catch (e) {}
+  }, [mapMode]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('mariner_live_provider_v3', liveProvider);
+    } catch (e) {}
+  }, [liveProvider]);
+
+  // Subscribe to Persistent Tile Cache Updates
+  useEffect(() => {
+    const updateStats = () => {
+      getCachedTileStats().then(setCacheStats);
+    };
+    updateStats();
+    const unsub = subscribeTileCacheUpdates(updateStats);
+    return () => unsub();
+  }, []);
+
+  // Monitor network connectivity (Do NOT force switch away from high-res tiles when offline!)
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => {
-      setIsOnline(false);
-      setMapMode('offline'); // auto fallback to offline vector if connection drops
-    };
+    const handleOffline = () => setIsOnline(false);
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
@@ -295,6 +370,104 @@ function drawSmoothPolygon(
     renderTriggerRef.current = (renderTriggerRef.current + 1) % 1000;
   }, []);
 
+  // Pre-cache marine viewport tiles for offline voyage
+  const handlePreCacheCurrentView = useCallback(async () => {
+    if (isPreCaching) return;
+    setIsPreCaching(true);
+    setPreCacheProgress({ done: 0, total: 100 });
+    setPreCacheSuccess(null);
+
+    const canvas = canvasRef.current;
+    const w = canvas ? canvas.width : 800;
+    const h = canvas ? canvas.height : 600;
+    const tl = canvasToGeo(0, 0, w, h);
+    const br = canvasToGeo(w, h, w, h);
+
+    const minLon = Math.max(-180, Math.min(tl.lon, br.lon));
+    const maxLon = Math.min(180, Math.max(tl.lon, br.lon));
+    const minLat = Math.max(-85, Math.min(tl.lat, br.lat));
+    const maxLat = Math.min(85, Math.max(tl.lat, br.lat));
+
+    const currentZ = Math.max(2, Math.min(18, Math.round(3.8137 + Math.log2(zoom))));
+    const minZ = Math.max(2, currentZ - 2);
+    const maxZ = Math.min(15, currentZ + 2);
+
+    try {
+      const res = await preCacheAreaTiles(
+        liveProvider,
+        minLon,
+        maxLon,
+        minLat,
+        maxLat,
+        minZ,
+        maxZ,
+        (done, total) => {
+          setPreCacheProgress({ done, total });
+        }
+      );
+      if (res.success) {
+        setPreCacheSuccess(`Cached ${res.downloaded} tiles! Ready 100% offline.`);
+        setTimeout(() => setPreCacheSuccess(null), 4000);
+      }
+    } catch (e) {
+      setPreCacheSuccess('Pre-cache finished with partial tiles.');
+      setTimeout(() => setPreCacheSuccess(null), 3000);
+    } finally {
+      setIsPreCaching(false);
+      setPreCacheProgress(null);
+      getCachedTileStats().then(setCacheStats);
+      triggerTileRedraw();
+    }
+  }, [isPreCaching, zoom, liveProvider, canvasToGeo, triggerTileRedraw]);
+
+  // Pre-cache predefined regional zone (e.g. Persian Gulf or Caspian Sea)
+  const handlePreCacheRegion = useCallback(async (regionName: 'persian_gulf' | 'caspian_sea') => {
+    if (isPreCaching) return;
+    setIsPreCaching(true);
+    setPreCacheProgress({ done: 0, total: 100 });
+    setPreCacheSuccess(null);
+
+    const bounds = regionName === 'persian_gulf'
+      ? { minLon: 48.0, maxLon: 57.5, minLat: 24.0, maxLat: 30.5 }
+      : { minLon: 46.5, maxLon: 54.5, minLat: 36.5, maxLat: 47.0 };
+
+    try {
+      const res = await preCacheAreaTiles(
+        liveProvider,
+        bounds.minLon,
+        bounds.maxLon,
+        bounds.minLat,
+        bounds.maxLat,
+        4,
+        10,
+        (done, total) => {
+          setPreCacheProgress({ done, total });
+        }
+      );
+      if (res.success) {
+        setPreCacheSuccess(`Pre-cached ${regionName === 'persian_gulf' ? 'Persian Gulf' : 'Caspian Sea'} (${res.downloaded} tiles)!`);
+        setTimeout(() => setPreCacheSuccess(null), 5000);
+      }
+    } catch (e) {
+      setPreCacheSuccess('Pre-caching encountered network timeout.');
+      setTimeout(() => setPreCacheSuccess(null), 3000);
+    } finally {
+      setIsPreCaching(false);
+      setPreCacheProgress(null);
+      getCachedTileStats().then(setCacheStats);
+      triggerTileRedraw();
+    }
+  }, [isPreCaching, liveProvider, triggerTileRedraw]);
+
+  const handleClearCache = useCallback(async () => {
+    if (confirm('Clear all stored offline marine map tiles?')) {
+      await clearTileCache();
+      const stats = await getCachedTileStats();
+      setCacheStats(stats);
+      triggerTileRedraw();
+    }
+  }, [triggerTileRedraw]);
+
   // Main Canvas Rendering Engine
   const renderChart = useCallback(() => {
     const canvas = canvasRef.current;
@@ -312,71 +485,101 @@ function drawSmoothPolygon(
     const animPhase = animPhaseRef.current;
 
     // =========================================================================
-    // 1. BASE BACKGROUND / LIVE WEB TILES
+    // 1. BASE HYDROGRAPHIC WATER & UNDERLYING SHORELINE VECTORS
     // =========================================================================
-    if (mapMode === 'live' && isOnline) {
-      // Background fill while tiles load
-      ctx.fillStyle = '#071626';
-      ctx.fillRect(0, 0, width, height);
+    // 1. Deep Oceanic Water Base Fill (Admiralty Deep Blue)
+    ctx.fillStyle = isNightMode ? '#080404' : '#071626';
+    ctx.fillRect(0, 0, width, height);
 
-      // Render Web Mercator Live Tiles into canvas
-      renderLiveMapTiles(
-        ctx,
-        liveProvider,
-        zoom,
-        geoToCanvas,
-        canvasToGeo,
-        width,
-        height,
-        triggerTileRedraw,
-        showLiveSeamarks
-      );
-    } else {
-      // 1. Deep Oceanic Water Base Fill (Admiralty Deep Blue)
+    // 2. Draw World Landmass Polygons & Outer Coastlines (Warm Nautical Khaki with Organic Spline Curves)
+    WORLD_LANDMASSES.forEach((land) => {
+      if (land.points.length < 3) return;
+      const screenPts = land.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
+
+      // Bounding box screen culling check
+      let minX = screenPts[0].x, maxX = screenPts[0].x;
+      let minY = screenPts[0].y, maxY = screenPts[0].y;
+      for (let i = 1; i < screenPts.length; i++) {
+        const pt = screenPts[i];
+        if (pt.x < minX) minX = pt.x;
+        if (pt.x > maxX) maxX = pt.x;
+        if (pt.y < minY) minY = pt.y;
+        if (pt.y > maxY) maxY = pt.y;
+      }
+      if (maxX < -80 || minX > width + 80 || maxY < -80 || minY > height + 80) {
+        return;
+      }
+
+      // Draw natural, organic shoreline curves
+      drawSmoothPolygon(ctx, screenPts, 0.22);
+
+      // Land fill color: Authentic Nautical Chart Buff / Khaki tone
+      ctx.fillStyle = isNightMode ? '#2d2215' : '#d8c79d';
+      ctx.fill();
+
+      // Coastal shallow intertidal fringe (gives authentic hydrographic depth)
+      ctx.strokeStyle = isNightMode ? 'rgba(110, 79, 37, 0.35)' : 'rgba(18, 72, 99, 0.28)';
+      ctx.lineWidth = 4.5;
+      ctx.stroke();
+
+      // Coastline stroke: Rich ochre shoreline border
+      ctx.strokeStyle = isNightMode ? '#6e4f25' : '#9b824f';
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+    });
+
+    // 3. Draw Inland Water Bodies & Major Regional Seas (Caspian Sea, Black Sea, Sea of Azov, Sea of Marmara, Lakes)
+    INLAND_WATER_BODIES.forEach((water) => {
+      if (water.points.length < 3) return;
+      const screenPts = water.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
+
+      let minX = screenPts[0].x, maxX = screenPts[0].x;
+      let minY = screenPts[0].y, maxY = screenPts[0].y;
+      for (let i = 1; i < screenPts.length; i++) {
+        const pt = screenPts[i];
+        if (pt.x < minX) minX = pt.x;
+        if (pt.x > maxX) maxX = pt.x;
+        if (pt.y < minY) minY = pt.y;
+        if (pt.y > maxY) maxY = pt.y;
+      }
+      if (maxX < -80 || minX > width + 80 || maxY < -80 || minY > height + 80) {
+        return;
+      }
+
+      drawSmoothPolygon(ctx, screenPts, 0.18);
+
+      // Water fill color (Deep Admiralty Blue)
       ctx.fillStyle = isNightMode ? '#080404' : '#071626';
-      ctx.fillRect(0, 0, width, height);
+      ctx.fill();
 
-      // 2. Draw World Landmass Polygons & Outer Coastlines (Warm Nautical Khaki with Organic Spline Curves)
-      WORLD_LANDMASSES.forEach((land) => {
-        if (land.points.length < 3) return;
-        const screenPts = land.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
+      // Coastal shallow fringe
+      ctx.strokeStyle = isNightMode ? 'rgba(110, 79, 37, 0.35)' : 'rgba(18, 72, 99, 0.28)';
+      ctx.lineWidth = 4;
+      ctx.stroke();
 
-        // Bounding box screen culling check
-        let minX = screenPts[0].x, maxX = screenPts[0].x;
-        let minY = screenPts[0].y, maxY = screenPts[0].y;
-        for (let i = 1; i < screenPts.length; i++) {
-          const pt = screenPts[i];
-          if (pt.x < minX) minX = pt.x;
-          if (pt.x > maxX) maxX = pt.x;
-          if (pt.y < minY) minY = pt.y;
-          if (pt.y > maxY) maxY = pt.y;
-        }
-        if (maxX < -80 || minX > width + 80 || maxY < -80 || minY > height + 80) {
-          return;
-        }
+      // Coastline stroke: Rich ochre shoreline border
+      ctx.strokeStyle = isNightMode ? '#6e4f25' : '#9b824f';
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+    });
 
-        // Draw natural, organic shoreline curves
-        drawSmoothPolygon(ctx, screenPts, 0.22);
+    // Re-draw any islands situated inside inland water bodies (e.g. Ashuradeh in Caspian, Snake Island in Black Sea)
+    WORLD_LANDMASSES.filter(l => l.name.includes('Ashuradeh') || l.name.includes('Ogurchinskiy') || l.name.includes('Snake Island')).forEach((island) => {
+      if (island.points.length < 3) return;
+      const screenPts = island.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
+      drawSmoothPolygon(ctx, screenPts, 0.2);
+      ctx.fillStyle = isNightMode ? '#2d2215' : '#d8c79d';
+      ctx.fill();
+      ctx.strokeStyle = isNightMode ? '#6e4f25' : '#9b824f';
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+    });
 
-        // Land fill color: Authentic Nautical Chart Buff / Khaki tone
-        ctx.fillStyle = isNightMode ? '#2d2215' : '#d8c79d';
-        ctx.fill();
-
-        // Coastal shallow intertidal fringe (gives authentic hydrographic depth)
-        ctx.strokeStyle = isNightMode ? 'rgba(110, 79, 37, 0.35)' : 'rgba(18, 72, 99, 0.28)';
-        ctx.lineWidth = 4.5;
-        ctx.stroke();
-
-        // Coastline stroke: Rich ochre shoreline border
-        ctx.strokeStyle = isNightMode ? '#6e4f25' : '#9b824f';
-        ctx.lineWidth = 1.6;
-        ctx.stroke();
-      });
-
-      // 3. Draw Inland Water Bodies & Major Regional Seas (Caspian Sea, Black Sea, Sea of Azov, Sea of Marmara, Lakes)
-      INLAND_WATER_BODIES.forEach((water) => {
-        if (water.points.length < 3) return;
-        const screenPts = water.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
+    // 4. Draw Bathymetry Depth Zones & Contours
+    if (showBathymetry && mapMode === 'vector') {
+      BATHYMETRY_CONTOURS.forEach((contour) => {
+        if (contour.points.length < 3) return;
+        const screenPts = contour.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
 
         let minX = screenPts[0].x, maxX = screenPts[0].x;
         let minY = screenPts[0].y, maxY = screenPts[0].y;
@@ -393,86 +596,54 @@ function drawSmoothPolygon(
 
         drawSmoothPolygon(ctx, screenPts, 0.18);
 
-        // Water fill color (Deep Admiralty Blue)
-        ctx.fillStyle = isNightMode ? '#080404' : '#071626';
+        // Nautical depth color graduation
+        if (contour.depthMeters <= 5) {
+          ctx.fillStyle = isNightMode ? '#220b0b' : '#1e5f78';
+        } else if (contour.depthMeters <= 10) {
+          ctx.fillStyle = isNightMode ? '#1c0909' : '#164e63';
+        } else if (contour.depthMeters <= 20) {
+          ctx.fillStyle = isNightMode ? '#160707' : '#0e3b52';
+        } else if (contour.depthMeters <= 50) {
+          ctx.fillStyle = isNightMode ? '#120505' : '#0b2b40';
+        } else if (contour.depthMeters <= 80) {
+          ctx.fillStyle = isNightMode ? '#0e0404' : '#082234';
+        } else {
+          ctx.fillStyle = isNightMode ? '#0a0303' : '#071a28';
+        }
         ctx.fill();
 
-        // Coastal shallow fringe
-        ctx.strokeStyle = isNightMode ? 'rgba(110, 79, 37, 0.35)' : 'rgba(18, 72, 99, 0.28)';
-        ctx.lineWidth = 4;
+        // Depth Contour boundary line
+        ctx.strokeStyle = isNightMode ? 'rgba(239, 68, 68, 0.28)' : 'rgba(56, 189, 248, 0.3)';
+        ctx.lineWidth = 1.0;
         ctx.stroke();
 
-        // Coastline stroke: Rich ochre shoreline border
-        ctx.strokeStyle = isNightMode ? '#6e4f25' : '#9b824f';
-        ctx.lineWidth = 1.6;
-        ctx.stroke();
+        // Depth Label
+        if (zoom > 15 && contour.points.length > 2) {
+          const midPt = geoToCanvas(contour.points[0][0], contour.points[0][1], width, height);
+          if (midPt.x > 0 && midPt.x < width && midPt.y > 0 && midPt.y < height) {
+            ctx.fillStyle = isNightMode ? 'rgba(239, 68, 68, 0.7)' : 'rgba(56, 189, 248, 0.75)';
+            ctx.font = 'bold 9px monospace';
+            ctx.fillText(`${contour.depthMeters}m`, midPt.x, midPt.y);
+          }
+        }
       });
+    }
 
-      // Re-draw any islands situated inside inland water bodies (e.g. Ashuradeh in Caspian, Snake Island in Black Sea)
-      WORLD_LANDMASSES.filter(l => l.name.includes('Ashuradeh') || l.name.includes('Ogurchinskiy') || l.name.includes('Snake Island')).forEach((island) => {
-        if (island.points.length < 3) return;
-        const screenPts = island.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
-        drawSmoothPolygon(ctx, screenPts, 0.2);
-        ctx.fillStyle = isNightMode ? '#2d2215' : '#d8c79d';
-        ctx.fill();
-        ctx.strokeStyle = isNightMode ? '#6e4f25' : '#9b824f';
-        ctx.lineWidth = 1.6;
-        ctx.stroke();
-      });
-
-      // 4. Draw Bathymetry Depth Zones & Contours
-      if (showBathymetry) {
-        BATHYMETRY_CONTOURS.forEach((contour) => {
-          if (contour.points.length < 3) return;
-          const screenPts = contour.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
-
-          let minX = screenPts[0].x, maxX = screenPts[0].x;
-          let minY = screenPts[0].y, maxY = screenPts[0].y;
-          for (let i = 1; i < screenPts.length; i++) {
-            const pt = screenPts[i];
-            if (pt.x < minX) minX = pt.x;
-            if (pt.x > maxX) maxX = pt.x;
-            if (pt.y < minY) minY = pt.y;
-            if (pt.y > maxY) maxY = pt.y;
-          }
-          if (maxX < -80 || minX > width + 80 || maxY < -80 || minY > height + 80) {
-            return;
-          }
-
-          drawSmoothPolygon(ctx, screenPts, 0.18);
-
-          // Nautical depth color graduation
-          if (contour.depthMeters <= 5) {
-            ctx.fillStyle = isNightMode ? '#220b0b' : '#1e5f78';
-          } else if (contour.depthMeters <= 10) {
-            ctx.fillStyle = isNightMode ? '#1c0909' : '#164e63';
-          } else if (contour.depthMeters <= 20) {
-            ctx.fillStyle = isNightMode ? '#160707' : '#0e3b52';
-          } else if (contour.depthMeters <= 50) {
-            ctx.fillStyle = isNightMode ? '#120505' : '#0b2b40';
-          } else if (contour.depthMeters <= 80) {
-            ctx.fillStyle = isNightMode ? '#0e0404' : '#082234';
-          } else {
-            ctx.fillStyle = isNightMode ? '#0a0303' : '#071a28';
-          }
-          ctx.fill();
-
-          // Depth Contour boundary line
-          ctx.strokeStyle = isNightMode ? 'rgba(239, 68, 68, 0.28)' : 'rgba(56, 189, 248, 0.3)';
-          ctx.lineWidth = 1.0;
-          ctx.stroke();
-
-          // Depth Label
-          if (zoom > 15 && contour.points.length > 2) {
-            const midPt = geoToCanvas(contour.points[0][0], contour.points[0][1], width, height);
-            if (midPt.x > 0 && midPt.x < width && midPt.y > 0 && midPt.y < height) {
-              ctx.fillStyle = isNightMode ? 'rgba(239, 68, 68, 0.7)' : 'rgba(56, 189, 248, 0.75)';
-              ctx.font = 'bold 9px monospace';
-              ctx.fillText(`${contour.depthMeters}m`, midPt.x, midPt.y);
-            }
-          }
-        });
-      }
+    // =========================================================================
+    // 1B. HIGH-RESOLUTION WEB MERCATOR TILES (Live Network + 100% Persistent Offline Cache)
+    // =========================================================================
+    if (mapMode === 'high_res') {
+      renderLiveMapTiles(
+        ctx,
+        liveProvider,
+        zoom,
+        geoToCanvas,
+        canvasToGeo,
+        width,
+        height,
+        triggerTileRedraw,
+        showLiveSeamarks
+      );
     }
 
     // =========================================================================
@@ -1314,8 +1485,8 @@ function drawSmoothPolygon(
       const boatPt = geoToCanvas(vesselLon, vesselLat, width, height);
       const isRouteOrNavActive = navigationSession.isNavigating || !!activeRoute || !!targetWaypoint || isAddWaypointMode;
       const validGpsHeading = (gps.heading !== null && !isNaN(gps.heading)) ? gps.heading : null;
-      const headingDeg = isRouteOrNavActive
-        ? (validGpsHeading ?? (compass.trueHeading || compass.magneticHeading || 0))
+      const headingDeg = activeHeadingMode === 'gps'
+        ? (validGpsHeading ?? lastValidGpsHeadingRef.current ?? (compass.trueHeading || compass.magneticHeading || 0))
         : (compass.trueHeading || compass.magneticHeading || validGpsHeading || 0);
       const headingRad = (headingDeg * Math.PI) / 180;
 
@@ -1923,8 +2094,8 @@ function drawSmoothPolygon(
   const currentSpeedKnots = gps.speedKnots || 0;
   const isRouteOrNavActive = navigationSession.isNavigating || !!activeRoute || !!targetWaypoint || isAddWaypointMode;
   const validGpsHeading = (gps.heading !== null && !isNaN(gps.heading)) ? gps.heading : null;
-  const currentHeading = isRouteOrNavActive
-    ? (validGpsHeading ?? (compass.trueHeading || compass.magneticHeading || 0))
+  const currentHeading = activeHeadingMode === 'gps'
+    ? (validGpsHeading ?? lastValidGpsHeadingRef.current ?? (compass.trueHeading || compass.magneticHeading || 0))
     : (compass.trueHeading || compass.magneticHeading || validGpsHeading || 0);
   const currentEta = navigationSession.etaTimestamp ? formatEta(navigationSession.etaTimestamp) : '---';
 
@@ -2058,40 +2229,88 @@ function drawSmoothPolygon(
             )}
           </div>
 
-          {/* Right Cluster: Compact Mode Pill & Exit Full Screen Button */}
-          <div className="pointer-events-auto flex items-center gap-1 sm:gap-2 shrink-0">
-            {/* Live / Offline Toggle */}
+          {/* Right Cluster: Heading Source, Tile/Vector Mode, Pre-cache & Exit Full Screen */}
+          <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* Heading Source Toggle (GPS COG vs Magnetic Compass) */}
             <div className="flex items-center bg-slate-900/90 p-0.5 rounded-lg border border-slate-700 text-xs font-mono shadow-lg backdrop-blur-md">
               <button
                 type="button"
-                onClick={() => setMapMode('offline')}
-                className={`px-1.5 sm:px-2 py-0.5 rounded transition-all text-[9px] sm:text-[10px] font-bold ${
-                  mapMode === 'offline'
+                onClick={() => setHeadingMode('gps')}
+                className={`px-2 py-0.5 rounded transition-all text-[9px] sm:text-[10px] font-bold flex items-center gap-1 ${
+                  activeHeadingMode === 'gps'
                     ? 'bg-cyan-600 text-white shadow'
                     : 'text-slate-400 hover:text-white'
                 }`}
-                title="Offline Vector Mode"
+                title="GPS Course Over Ground Heading (Default)"
               >
-                OFFLINE
+                <Radio className="w-2.5 h-2.5" />
+                <span>GPS COG</span>
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  if (isOnline) setMapMode('live');
-                }}
-                disabled={!isOnline}
-                className={`px-1.5 sm:px-2 py-0.5 rounded transition-all text-[9px] sm:text-[10px] font-bold ${
-                  !isOnline
-                    ? 'opacity-30 cursor-not-allowed text-slate-500'
-                    : mapMode === 'live'
-                    ? 'bg-emerald-600 text-white shadow animate-pulse'
+                onClick={() => setHeadingMode('compass')}
+                className={`px-2 py-0.5 rounded transition-all text-[9px] sm:text-[10px] font-bold flex items-center gap-1 ${
+                  activeHeadingMode === 'compass'
+                    ? 'bg-amber-600 text-white shadow'
                     : 'text-slate-400 hover:text-white'
                 }`}
-                title={isOnline ? 'Online Live Map Mode' : 'No Internet'}
+                title="Internal Magnetic Compass Sensor"
               >
-                LIVE
+                <Compass className="w-2.5 h-2.5" />
+                <span>COMPASS</span>
               </button>
             </div>
+
+            {/* High-Res Tiles vs Pure Vector Toggle */}
+            <div className="flex items-center bg-slate-900/90 p-0.5 rounded-lg border border-slate-700 text-xs font-mono shadow-lg backdrop-blur-md">
+              <button
+                type="button"
+                onClick={() => setMapMode('high_res')}
+                className={`px-2 py-0.5 rounded transition-all text-[9px] sm:text-[10px] font-bold flex items-center gap-1 ${
+                  mapMode === 'high_res'
+                    ? 'bg-emerald-600 text-white shadow'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="High-Resolution Satellite & Marine Tiles (Auto-cached for offline use)"
+              >
+                <Globe className="w-2.5 h-2.5" />
+                <span>TILES</span>
+                <span className="text-[8px] px-1 py-0.1 bg-emerald-950/90 text-emerald-300 rounded font-normal">
+                  {cacheStats.count}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMapMode('vector')}
+                className={`px-2 py-0.5 rounded transition-all text-[9px] sm:text-[10px] font-bold flex items-center gap-1 ${
+                  mapMode === 'vector'
+                    ? 'bg-cyan-600 text-white shadow'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Clean Digital Vector Nautical Chart"
+              >
+                <Layers className="w-2.5 h-2.5" />
+                <span>VECTOR</span>
+              </button>
+            </div>
+
+            {/* Pre-cache Viewport button */}
+            <button
+              type="button"
+              onClick={handlePreCacheCurrentView}
+              disabled={isPreCaching || !isOnline}
+              className={`px-2 py-1 rounded-lg border text-[9px] sm:text-[10px] font-mono flex items-center gap-1 shadow-lg transition-all ${
+                isPreCaching
+                  ? 'bg-amber-500/20 border-amber-500 text-amber-300 animate-pulse'
+                  : !isOnline
+                  ? 'bg-slate-900/60 border-slate-800 text-slate-500 cursor-not-allowed'
+                  : 'bg-slate-900/90 border-cyan-500/50 text-cyan-300 hover:bg-cyan-950/80'
+              }`}
+              title={isOnline ? "Download and cache current viewport tiles for offline sailing" : "Offline: Serving saved tiles"}
+            >
+              <Download className="w-3 h-3" />
+              <span>{isPreCaching ? `Caching ${preCacheProgress?.done}/${preCacheProgress?.total}...` : 'Cache Area'}</span>
+            </button>
 
             {/* Exit Full Screen Button */}
             <button
@@ -2111,7 +2330,7 @@ function drawSmoothPolygon(
       {/* Top Header Floating Status & Mode Bar (When NOT in Fullscreen) */}
       {!isFullscreen && (
         <div className="absolute top-2.5 left-2.5 right-2.5 flex flex-wrap items-center justify-between gap-1.5 pointer-events-none z-20">
-          {/* Left: Vessel Position Badge & Map Mode Switch */}
+          {/* Left: Vessel Position, Heading Mode & Tile Mode */}
           <div className="flex flex-wrap items-center gap-1.5">
             <div className={`pointer-events-auto px-2.5 py-1 rounded-lg border backdrop-blur-md text-[11px] font-mono flex items-center gap-1.5 shadow-lg ${
               isNightMode 
@@ -2129,42 +2348,94 @@ function drawSmoothPolygon(
               </span>
             </div>
 
-            {/* LIVE vs OFFLINE Segmented Pill */}
+            {/* Heading Source Toggle (GPS COG vs Compass) */}
             <div className="pointer-events-auto flex items-center bg-slate-900/90 p-0.5 rounded-lg border border-slate-700 text-[10px] font-mono shadow-lg backdrop-blur-md">
               <button
                 type="button"
-                onClick={() => setMapMode('offline')}
+                onClick={() => setHeadingMode('gps')}
                 className={`px-2 py-0.5 rounded transition-all flex items-center gap-1 font-bold ${
-                  mapMode === 'offline'
+                  activeHeadingMode === 'gps'
                     ? 'bg-cyan-600 text-white shadow'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
-                title="Offline Vector Marine Chart (No Internet Required)"
+                title="Course Over Ground from GPS (Default for Navigation & Routes)"
               >
                 <Radio className="w-2.5 h-2.5" />
-                <span>OFFLINE</span>
+                <span>GPS COG</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setHeadingMode('compass')}
+                className={`px-2 py-0.5 rounded transition-all flex items-center gap-1 font-bold ${
+                  activeHeadingMode === 'compass'
+                    ? 'bg-amber-600 text-white shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Internal Magnetic Compass Sensor"
+              >
+                <Compass className="w-2.5 h-2.5" />
+                <span>COMPASS</span>
+              </button>
+            </div>
+
+            {/* High-Res Tiles vs Vector Toggle */}
+            <div className="pointer-events-auto flex items-center bg-slate-900/90 p-0.5 rounded-lg border border-slate-700 text-[10px] font-mono shadow-lg backdrop-blur-md">
+              <button
+                type="button"
+                onClick={() => setMapMode('high_res')}
+                className={`px-2 py-0.5 rounded transition-all flex items-center gap-1 font-bold ${
+                  mapMode === 'high_res'
+                    ? 'bg-emerald-600 text-white shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="High-Resolution Satellite & Marine Slippy Tiles (Auto-cached for 100% offline use)"
+              >
+                <Globe className="w-2.5 h-2.5" />
+                <span>TILES</span>
+                <span className="text-[8px] px-1 py-0.1 bg-emerald-950 text-emerald-300 rounded font-normal">
+                  {cacheStats.count}
+                </span>
               </button>
 
               <button
                 type="button"
-                onClick={() => {
-                  if (isOnline) setMapMode('live');
-                }}
-                disabled={!isOnline}
+                onClick={() => setMapMode('vector')}
                 className={`px-2 py-0.5 rounded transition-all flex items-center gap-1 font-bold ${
-                  !isOnline
-                    ? 'opacity-40 cursor-not-allowed text-slate-500'
-                    : mapMode === 'live'
-                    ? 'bg-emerald-600 text-white shadow animate-pulse'
+                  mapMode === 'vector'
+                    ? 'bg-cyan-600 text-white shadow'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
-                title={isOnline ? 'Online Live Oceanography and Navigation Map' : 'No Internet Connection'}
+                title="Clean Digital Vector Nautical Chart"
               >
-                <Globe className="w-2.5 h-2.5" />
-                <span>LIVE</span>
-                {isOnline ? <Wifi className="w-2.5 h-2.5 text-emerald-300" /> : <WifiOff className="w-2.5 h-2.5 text-red-400" />}
+                <Layers className="w-2.5 h-2.5" />
+                <span>VECTOR</span>
               </button>
             </div>
+
+            {/* Pre-cache Viewport Button */}
+            <button
+              type="button"
+              onClick={handlePreCacheCurrentView}
+              disabled={isPreCaching || !isOnline}
+              className={`pointer-events-auto px-2 py-1 rounded-lg border text-[10px] font-mono flex items-center gap-1 shadow-lg backdrop-blur-md transition-all ${
+                isPreCaching
+                  ? 'bg-amber-500/20 border-amber-500 text-amber-300 animate-pulse'
+                  : !isOnline
+                  ? 'bg-slate-900/60 border-slate-800 text-slate-500 cursor-not-allowed'
+                  : 'bg-slate-900/90 border-cyan-500/50 text-cyan-300 hover:bg-cyan-950/80'
+              }`}
+              title={isOnline ? "Save all tiles in current viewport for offline navigation" : "Offline: Using saved cache"}
+            >
+              <Download className="w-3 h-3" />
+              <span>{isPreCaching ? `Caching ${preCacheProgress?.done}/${preCacheProgress?.total}...` : 'Cache Viewport'}</span>
+            </button>
+
+            {!isOnline && mapMode === 'high_res' && (
+              <div className="pointer-events-auto px-2 py-0.5 rounded-md bg-emerald-950/90 border border-emerald-500/60 text-emerald-300 text-[10px] font-mono flex items-center gap-1 shadow">
+                <HardDrive className="w-2.5 h-2.5" />
+                <span>OFFLINE CACHE ({cacheStats.count})</span>
+              </div>
+            )}
           </div>
 
           {/* Right: Live Cursor Coordinate Display & Add Waypoint Banner */}
@@ -2187,6 +2458,14 @@ function drawSmoothPolygon(
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Pre-cache completion notification banner */}
+      {preCacheSuccess && (
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 px-3 py-1.5 rounded-xl bg-emerald-900/95 border border-emerald-500 text-white text-xs font-mono font-bold shadow-2xl flex items-center gap-2 animate-bounce">
+          <CheckCircle2 className="w-4 h-4 text-emerald-300 shrink-0" />
+          <span>{preCacheSuccess}</span>
         </div>
       )}
 
@@ -2410,54 +2689,154 @@ function drawSmoothPolygon(
             </div>
           </div>
 
-          {/* Online Map Provider Selector (When in Live Mode) */}
+          {/* Heading Source Selection */}
           <div className="pb-2 border-b border-slate-800 flex flex-col gap-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1">
-                <Globe className="w-3 h-3" />
-                <span>Map Mode</span>
+                <Radio className="w-3 h-3" />
+                <span>Heading Reference</span>
               </span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
-                mapMode === 'live' ? 'bg-emerald-950 text-emerald-300 border border-emerald-700' : 'bg-cyan-950 text-cyan-300 border border-cyan-700'
-              }`}>
-                {mapMode === 'live' ? 'ONLINE LIVE' : 'OFFLINE VECTOR'}
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 font-bold">
+                {activeHeadingMode === 'gps' ? 'GPS COG (ACTIVE)' : 'COMPASS SENSOR'}
               </span>
             </div>
-
-            <div className="grid grid-cols-2 gap-1 mt-1">
+            <div className="grid grid-cols-2 gap-1 mt-0.5">
               <button
                 type="button"
-                onClick={() => setMapMode('offline')}
+                onClick={() => setHeadingMode('gps')}
                 className={`px-2 py-1.5 rounded-lg text-left transition-all ${
-                  mapMode === 'offline'
+                  activeHeadingMode === 'gps'
                     ? 'bg-cyan-600 text-white font-bold'
                     : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
                 }`}
               >
-                📡 OFFLINE
+                <div className="text-[10px] font-bold flex items-center gap-1">
+                  <Radio className="w-2.5 h-2.5" />
+                  <span>GPS COG</span>
+                </div>
+                <div className="text-[8px] text-slate-300">Course Over Ground (Default)</div>
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  if (isOnline) setMapMode('live');
-                }}
-                disabled={!isOnline}
+                onClick={() => setHeadingMode('compass')}
                 className={`px-2 py-1.5 rounded-lg text-left transition-all ${
-                  !isOnline
-                    ? 'opacity-40 cursor-not-allowed bg-slate-800 text-slate-500'
-                    : mapMode === 'live'
+                  activeHeadingMode === 'compass'
+                    ? 'bg-amber-600 text-white font-bold'
+                    : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                <div className="text-[10px] font-bold flex items-center gap-1">
+                  <Compass className="w-2.5 h-2.5" />
+                  <span>COMPASS</span>
+                </div>
+                <div className="text-[8px] text-slate-300">Magnetic Device Heading</div>
+              </button>
+            </div>
+          </div>
+
+          {/* High-Resolution Map Mode & Offline Cache Manager */}
+          <div className="pb-2 border-b border-slate-800 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1">
+                <Globe className="w-3 h-3" />
+                <span>Map Base & Offline Quality</span>
+              </span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                mapMode === 'high_res' ? 'bg-emerald-950 text-emerald-300 border border-emerald-700' : 'bg-cyan-950 text-cyan-300 border border-cyan-700'
+              }`}>
+                {mapMode === 'high_res' ? 'HIGH-RES TILES' : 'VECTOR'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-1">
+              <button
+                type="button"
+                onClick={() => setMapMode('high_res')}
+                className={`px-2 py-1.5 rounded-lg text-left transition-all ${
+                  mapMode === 'high_res'
                     ? 'bg-emerald-600 text-white font-bold'
                     : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
                 }`}
               >
-                🌐 ONLINE LIVE
+                <div className="text-[10px] font-bold flex items-center gap-1">
+                  <Globe className="w-2.5 h-2.5" />
+                  <span>High-Res Tiles</span>
+                </div>
+                <div className="text-[8px] text-slate-300">Satellite / Marine (Offline Cached)</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMapMode('vector')}
+                className={`px-2 py-1.5 rounded-lg text-left transition-all ${
+                  mapMode === 'vector'
+                    ? 'bg-cyan-600 text-white font-bold'
+                    : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                <div className="text-[10px] font-bold flex items-center gap-1">
+                  <Layers className="w-2.5 h-2.5" />
+                  <span>Vector Chart</span>
+                </div>
+                <div className="text-[8px] text-slate-300">Clean Digital Nautical Vectors</div>
               </button>
             </div>
 
-            {/* Provider List when Live */}
-            {mapMode === 'live' && (
-              <div className="mt-2 flex flex-col gap-1.5">
-                <span className="text-[9px] text-slate-400 uppercase font-bold">Online Map Provider:</span>
+            {/* Offline Cache Storage Status & Actions */}
+            <div className="p-2 rounded-lg bg-slate-950/80 border border-emerald-500/30 flex flex-col gap-1.5 mt-0.5">
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-emerald-400 font-bold flex items-center gap-1">
+                  <Database className="w-3 h-3 text-emerald-400" />
+                  <span>Persistent Tile Storage:</span>
+                </span>
+                <span className="font-bold text-white">{cacheStats.count} tiles ({cacheStats.estimatedMb} MB)</span>
+              </div>
+              <div className="text-[8px] text-slate-400">
+                All viewed tiles are automatically cached on device storage and remain 100% available offline without internet.
+              </div>
+              <div className="flex items-center gap-1 mt-1">
+                <button
+                  type="button"
+                  onClick={handlePreCacheCurrentView}
+                  disabled={isPreCaching || !isOnline}
+                  className="flex-1 px-2 py-1 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white rounded text-[9px] font-bold flex items-center justify-center gap-1 transition-all"
+                >
+                  <Download className="w-2.5 h-2.5" />
+                  <span>{isPreCaching ? 'Downloading...' : 'Cache Current View'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearCache}
+                  className="px-2 py-1 bg-slate-800 hover:bg-red-950 text-slate-400 hover:text-red-300 rounded text-[9px] border border-slate-700 hover:border-red-600/50 flex items-center gap-1 transition-all"
+                  title="Clear all stored offline tiles"
+                >
+                  <Trash2 className="w-2.5 h-2.5" />
+                  <span>Clear</span>
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-1 mt-0.5">
+                <button
+                  type="button"
+                  onClick={() => handlePreCacheRegion('persian_gulf')}
+                  disabled={isPreCaching || !isOnline}
+                  className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 rounded text-[8px] text-center border border-slate-700"
+                >
+                  ⬇️ Pre-cache Persian Gulf
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlePreCacheRegion('caspian_sea')}
+                  disabled={isPreCaching || !isOnline}
+                  className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 rounded text-[8px] text-center border border-slate-700"
+                >
+                  ⬇️ Pre-cache Caspian Sea
+                </button>
+              </div>
+            </div>
+
+            {/* Provider List when High-Res Tiles */}
+            {mapMode === 'high_res' && (
+              <div className="mt-1 flex flex-col gap-1.5">
+                <span className="text-[9px] text-slate-400 uppercase font-bold">Tile Provider & Imagery:</span>
                 {LIVE_TILE_PROVIDERS.map((prov) => (
                   <button
                     key={prov.id}
@@ -2708,7 +3087,7 @@ function drawSmoothPolygon(
         <div className={`absolute bottom-3 right-3 px-3 py-1 rounded-lg border text-[10px] font-mono backdrop-blur-md pointer-events-none z-20 shadow-md ${
           isNightMode ? 'bg-red-950/80 border-red-900 text-red-400' : 'bg-slate-900/80 border-slate-800 text-slate-400'
         }`}>
-          Zoom: {zoom.toFixed(0)}x • {mapMode === 'live' ? '🌐 Live Online Map' : '📡 Vector Nautical Chart'}
+          Zoom: {zoom.toFixed(0)}x • {mapMode === 'high_res' ? `🛰️ High-Res Tiles (${cacheStats.count} cached)` : '📡 Vector Nautical Chart'}
         </div>
       )}
     </div>
