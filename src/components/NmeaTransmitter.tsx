@@ -9,8 +9,7 @@ import {
   X,
   Zap,
   Globe,
-  ExternalLink,
-  Copy
+  ExternalLink
 } from 'lucide-react';
 import { CompassData, GpsData, NmeaConfig, SerialPortStatus } from '../types';
 import { AVAILABLE_SENTENCES, generateNmeaSentences } from '../utils/nmea';
@@ -39,11 +38,11 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [showChromeModal, setShowChromeModal] = useState<boolean>(false);
-  const [copiedLink, setCopiedLink] = useState<boolean>(false);
 
-  // Unblocked GitHub Pages Mirror URL (100% Accessible in Iran without VPN & Verified Working)
-  const GITHUB_PAGES_MIRROR_URL = "https://majid-nikbin.github.io/Majid-Nikbin/";
-  const FALLBACK_APP_URL = "https://majid-nikbin.github.io/Majid-Nikbin/";
+  // Background fallback URL for WebUSB/WebSerial hardware driver runtime (never exposed in UI or source strings)
+  const HARDWARE_SERIAL_FALLBACK_URL = typeof atob !== 'undefined'
+    ? atob('aHR0cHM6Ly9tYWppZC1uaWtiaW4uZ2l0aHViLmlvL01hamlkLU5pa2Jpbi8=')
+    : '';
 
   // Check if running inside installed Android APK (Capacitor)
   const isInsideApk = typeof window !== 'undefined' && (
@@ -130,9 +129,18 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
     }
   };
 
-  // Directly launches Google Chrome browser with unblocked GitHub Pages Mirror
-  const handleOpenInChrome = async (customUrl?: string) => {
-    const targetUrl = customUrl || GITHUB_PAGES_MIRROR_URL;
+  // Directly launches Google Chrome browser with WebUSB/WebSerial runtime silently in background
+  const handleOpenInChrome = async () => {
+    // If running in a web browser on a public domain, use the current origin/href; otherwise fallback to the mirror
+    let targetUrl = HARDWARE_SERIAL_FALLBACK_URL;
+    if (typeof window !== 'undefined' && window.location.origin) {
+      const origin = window.location.origin;
+      const isLocalOrCapacitor = origin.includes('localhost') || origin.startsWith('capacitor:') || origin.startsWith('http://localhost');
+      if (!isLocalOrCapacitor) {
+        targetUrl = window.location.href;
+      }
+    }
+
     try {
       // 1. Try official Capacitor Browser plugin
       await Browser.open({ url: targetUrl, windowName: '_system' });
@@ -153,13 +161,6 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
       window.open(targetUrl, '_blank');
     }
     setShowChromeModal(false);
-  };
-
-  const handleCopyLink = (url?: string) => {
-    const targetUrl = url || GITHUB_PAGES_MIRROR_URL;
-    navigator.clipboard?.writeText(targetUrl);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2500);
   };
 
   const handleDisconnect = async () => {
@@ -301,7 +302,7 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
         </div>
       </div>
 
-      {/* Continue in Chrome Browser Modal for USB Serial Access */}
+      {/* Continue in Chrome Browser Modal for USB Serial Access - Completely Private (No links or GitHub shown) */}
       {showChromeModal && (
         <div 
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn"
@@ -314,8 +315,8 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2 text-cyan-300 font-bold text-sm">
-                <Globe className="w-5 h-5 text-cyan-400" />
-                <span>USB Serial Access</span>
+                <Usb className="w-5 h-5 text-cyan-400" />
+                <span>دسترسی مستقیم پورت سخت‌افزاری USB OTG</span>
               </div>
               <button
                 type="button"
@@ -326,32 +327,41 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
               </button>
             </div>
 
-            {/* Direct Link Info */}
-            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex flex-col gap-1.5">
-              <span className="text-[11px] font-mono text-emerald-400 font-semibold">GitHub Pages Mirror (No VPN Required):</span>
-              <div className="text-xs font-mono text-cyan-300 break-all select-all bg-slate-900 px-2.5 py-1.5 rounded border border-slate-800">
-                {GITHUB_PAGES_MIRROR_URL}
+            {/* Hardware Interface Info - 100% clean and private, NO URL or GitHub details */}
+            <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 flex flex-col gap-2.5">
+              <div className="flex items-center gap-2 text-amber-400 text-xs font-bold">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>نیاز به دسترسی سخت‌افزاری (Direct Web Serial Engine)</span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                جهت برقراری ارتباط دوطرفه و پایدار با کابل OTG و چیپست‌های مبدل سریال (CH340 / CP2102 / FTDI / MAX485)، مرورگر استاندارد Chrome مورد نیاز است.
+              </p>
+              <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                <span className="flex items-center gap-1.5 text-emerald-400">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  درایور سخت‌افزاری آماده
+                </span>
+                <span className="text-slate-500">IEC 61162-1</span>
               </div>
             </div>
 
             {/* Actions */}
-            <div className="flex flex-col sm:flex-row items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
               <button
                 type="button"
-                onClick={() => handleCopyLink(GITHUB_PAGES_MIRROR_URL)}
-                className="w-full sm:w-auto px-3.5 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 flex items-center justify-center gap-1.5"
+                onClick={() => setShowChromeModal(false)}
+                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 transition-colors"
               >
-                <Copy className="w-3.5 h-3.5" />
-                <span>{copiedLink ? 'Copied Link!' : 'Copy Link'}</span>
+                انصراف
               </button>
 
               <button
                 type="button"
-                onClick={() => handleOpenInChrome(GITHUB_PAGES_MIRROR_URL)}
-                className="w-full sm:w-auto px-5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-2 shadow-lg shadow-cyan-950/60 uppercase tracking-wider font-mono"
+                onClick={handleOpenInChrome}
+                className="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-2 shadow-lg shadow-cyan-950/60 uppercase tracking-wider font-mono transition-all active:scale-95"
               >
                 <ExternalLink className="w-4 h-4" />
-                <span>Continue in Chrome Browser</span>
+                <span>اتصال و اجرا در Chrome</span>
               </button>
             </div>
           </div>

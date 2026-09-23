@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Navigation, 
   MapPin, 
+  MapPinPlus,
+  Undo2,
   Plus, 
   Trash2, 
   Play, 
@@ -588,25 +590,82 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
   };
 
   const handleMapClickAddWaypoint = (lat: number, lon: number) => {
-    if (!activeRoute) return;
-    if (activeRoute.waypoints.length >= 50) {
-      showToast('Maximum 50 waypoints reached.', 'warn');
-      setIsMapPickMode(false);
+    let currentRoute = activeRoute;
+    if (!currentRoute) {
+      const newRoute: MarineRoute = {
+        id: `route_${Date.now()}`,
+        name: 'Voyage Route 1',
+        color: '#06b6d4',
+        waypoints: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+      setRoutes(prev => [newRoute, ...prev]);
+      setActiveRouteId(newRoute.id);
+      currentRoute = newRoute;
+    }
+
+    if (currentRoute.waypoints.length >= 50) {
+      showToast('حداکثر ۵۰ نقطه مسیر مجاز است (Maximum 50 Waypoints reached).', 'warn');
       return;
     }
 
+    const nextIndex = currentRoute.waypoints.length + 1;
     const newWp: Waypoint = {
-      id: `wp_${Date.now()}`,
-      name: `WP${activeRoute.waypoints.length + 1} (${lat.toFixed(2)}N)`,
+      id: `wp_${Date.now()}_${nextIndex}`,
+      name: `WP${nextIndex}`,
       latitude: lat,
       longitude: lon,
-      order: activeRoute.waypoints.length,
+      order: currentRoute.waypoints.length,
       createdAt: Date.now(),
     };
 
-    const updatedWaypoints = [...activeRoute.waypoints, newWp];
-    setRoutes(prev => prev.map(r => r.id === activeRoute.id ? { ...r, waypoints: updatedWaypoints, updatedAt: Date.now() } : r));
-    showToast(`Added waypoint "${newWp.name}" from map`, 'success');
+    const updatedWaypoints = [...currentRoute.waypoints, newWp];
+    setRoutes(prev => prev.map(r => r.id === currentRoute!.id ? { ...r, waypoints: updatedWaypoints, updatedAt: Date.now() } : r));
+
+    // Show navigation track immediately from origin/vessel to this point or along the route
+    if (!targetWaypointId || !navSession.isNavigating) {
+      setTargetWaypointId(newWp.id);
+      handleStartNavigation(newWp);
+    }
+
+    showToast(`نقطه ${newWp.name} با دبل‌کلیک اضافه شد (${updatedWaypoints.length}/50)`, 'success');
+  };
+
+  const handleClearLastWaypoint = () => {
+    if (!activeRoute || activeRoute.waypoints.length === 0) {
+      showToast('هیچ نقطه‌ای برای حذف وجود ندارد (No waypoints to clear)', 'info');
+      return;
+    }
+
+    const sorted = [...activeRoute.waypoints].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const lastWp = sorted[sorted.length - 1];
+    const remainingWaypoints = sorted.slice(0, sorted.length - 1);
+
+    setRoutes(prev => prev.map(r => r.id === activeRoute.id ? {
+      ...r,
+      waypoints: remainingWaypoints,
+      updatedAt: Date.now()
+    } : r));
+
+    if (remainingWaypoints.length === 0) {
+      setTargetWaypointId(null);
+      setNavSession(prev => ({
+        ...prev,
+        isNavigating: false,
+        isRouteNavigation: false,
+        waypointId: null,
+        targetWaypoint: null,
+      }));
+      showToast(`نقطه ${lastWp.name} حذف شد. تمامی نقاط پاک شدند.`, 'info');
+    } else {
+      if (targetWaypointId === lastWp.id) {
+        const prevTarget = remainingWaypoints[remainingWaypoints.length - 1];
+        setTargetWaypointId(prevTarget.id);
+        handleStartNavigation(prevTarget);
+      }
+      showToast(`نقطه ${lastWp.name} حذف شد. (${remainingWaypoints.length} نقطه باقی‌مانده)`, 'info');
+    }
   };
 
   // --- Navigation Controls ---
@@ -1230,19 +1289,41 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
             </h2>
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* Quick Map Pick Mode toggle */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Quick Map Add Waypoint Mode toggle */}
             <button
               type="button"
               onClick={() => setIsMapPickMode(!isMapPickMode)}
               className={`px-3 py-1.5 rounded-xl border text-xs font-mono font-bold flex items-center gap-1.5 transition-all shadow-md ${
                 isMapPickMode 
-                  ? 'bg-amber-500 text-slate-950 border-amber-400 animate-pulse' 
-                  : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  ? 'bg-amber-500 text-slate-950 border-amber-300 font-black shadow-amber-500/30 scale-105 animate-pulse' 
+                  : 'bg-slate-800 text-amber-400 border-slate-700 hover:bg-slate-700 hover:border-amber-400'
               }`}
+              title="Activate Double-Click Waypoint Mode (Up to 50 Waypoints)"
             >
-              <Crosshair className="w-3.5 h-3.5" />
-              <span>{isMapPickMode ? 'Click Map to Place WP' : 'Pick on Map'}</span>
+              <MapPinPlus className="w-3.5 h-3.5" />
+              <span>{isMapPickMode ? `افزودن نقطه فعال (${activeRoute?.waypoints.length || 0}/50)` : 'Add Waypoint (دبل کلیک)'}</span>
+            </button>
+
+            {/* Clear Waypoint Button (Sequentially removes from last to first) */}
+            <button
+              type="button"
+              onClick={handleClearLastWaypoint}
+              disabled={!activeRoute || activeRoute.waypoints.length === 0}
+              className={`px-3 py-1.5 rounded-xl border text-xs font-mono font-bold flex items-center gap-1.5 transition-all shadow-md ${
+                !activeRoute || activeRoute.waypoints.length === 0
+                  ? 'opacity-40 cursor-not-allowed bg-slate-900 border-slate-800 text-slate-500'
+                  : 'bg-slate-800 hover:bg-rose-950/80 text-rose-400 border-slate-700 hover:border-rose-500 active:scale-95'
+              }`}
+              title="Clear last added waypoint (حذف از آخر به اول)"
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+              <span>Clear Waypoint</span>
+              {activeRoute && activeRoute.waypoints.length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-rose-500/20 text-rose-300 text-[10px]">
+                  {activeRoute.waypoints.length}
+                </span>
+              )}
             </button>
           </div>
         </div>
@@ -1257,6 +1338,8 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
           isNightMode={isNightMode}
           isAddWaypointMode={isMapPickMode}
           onMapClickAddWaypoint={handleMapClickAddWaypoint}
+          onToggleAddWaypointMode={() => setIsMapPickMode(!isMapPickMode)}
+          onClearLastWaypoint={handleClearLastWaypoint}
           onSelectWaypoint={(wp) => {
             setTargetWaypointId(wp.id);
             handleStartNavigation(wp);

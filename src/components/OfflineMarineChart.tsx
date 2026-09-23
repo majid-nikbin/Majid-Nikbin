@@ -6,6 +6,9 @@ import {
   Crosshair, 
   Compass, 
   MapPin, 
+  MapPinPlus,
+  Undo2,
+  X,
   Layers, 
   Navigation2, 
   LocateFixed,
@@ -82,6 +85,8 @@ interface OfflineMarineChartProps {
   isNightMode?: boolean;
   onMapClickAddWaypoint?: (lat: number, lon: number) => void;
   isAddWaypointMode?: boolean;
+  onToggleAddWaypointMode?: () => void;
+  onClearLastWaypoint?: () => void;
   onSelectWaypoint?: (wp: Waypoint) => void;
   headingMode?: 'gps' | 'compass';
   onHeadingModeChange?: (mode: 'gps' | 'compass') => void;
@@ -96,12 +101,29 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
   isNightMode = false,
   onMapClickAddWaypoint,
   isAddWaypointMode = false,
+  onToggleAddWaypointMode,
+  onClearLastWaypoint,
   onSelectWaypoint,
   headingMode: headingModeProp,
   onHeadingModeChange: onHeadingModeChangeProp,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const lastTapRef = useRef<{ time: number; x: number; y: number } | null>(null);
+
+  const waypointCount = activeRoute?.waypoints?.length || 0;
+
+  const handleToggleAddWaypointMode = () => {
+    if (onToggleAddWaypointMode) {
+      onToggleAddWaypointMode();
+    }
+  };
+
+  const handleClearLastWaypoint = () => {
+    if (onClearLastWaypoint) {
+      onClearLastWaypoint();
+    }
+  };
 
   // Heading mode state: 'gps' (Course Over Ground, default) or 'compass' (Magnetic sensor)
   const [internalHeadingMode, setInternalHeadingMode] = useState<'gps' | 'compass'>(() => {
@@ -1279,7 +1301,52 @@ function drawSmoothPolygon(
       const currentLegIdx = navigationSession.currentLegIndex ?? 0;
       const isRouteNav = navigationSession.isNavigating && navigationSession.isRouteNavigation;
 
-      // Draw overall Route Connection Lines between sequential waypoints
+      // 1. Draw Track Line from Vessel Origin to First Destination Waypoint
+      const boatPt = geoToCanvas(vesselLon, vesselLat, width, height);
+      const firstWpPt = geoToCanvas(wps[0].longitude, wps[0].latitude, width, height);
+      const originDist = calculateDistanceNm(vesselLat, vesselLon, wps[0].latitude, wps[0].longitude);
+      const originBrg = calculateBearing(vesselLat, vesselLon, wps[0].latitude, wps[0].longitude);
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(boatPt.x, boatPt.y);
+      ctx.lineTo(firstWpPt.x, firstWpPt.y);
+      ctx.strokeStyle = isNightMode ? 'rgba(239, 68, 68, 0.35)' : 'rgba(6, 182, 212, 0.45)';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(boatPt.x, boatPt.y);
+      ctx.lineTo(firstWpPt.x, firstWpPt.y);
+      ctx.strokeStyle = isNightMode ? '#ef4444' : '#06b6d4';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([8, 5]);
+      ctx.lineDashOffset = -animPhase * 6;
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const odx = firstWpPt.x - boatPt.x;
+      const ody = firstWpPt.y - boatPt.y;
+      const originLen = Math.hypot(odx, ody);
+      if (originLen > 55) {
+        const midOX = (boatPt.x + firstWpPt.x) / 2;
+        const midOY = (boatPt.y + firstWpPt.y) / 2;
+        const originLabel = `${originDist.toFixed(1)} NM • ${formatHeadingDeg(originBrg)}`;
+        ctx.font = 'bold 9px monospace';
+        const olW = ctx.measureText(originLabel).width + 8;
+        ctx.fillStyle = isNightMode ? 'rgba(20, 5, 5, 0.9)' : 'rgba(15, 23, 42, 0.9)';
+        ctx.fillRect(midOX - olW / 2, midOY - 8, olW, 16);
+        ctx.strokeStyle = isNightMode ? '#ef4444' : '#06b6d4';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(midOX - olW / 2, midOY - 8, olW, 16);
+        ctx.fillStyle = isNightMode ? '#fca5a5' : '#67e8f9';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(originLabel, midOX, midOY);
+      }
+      ctx.restore();
+
+      // 2. Draw overall Route Connection Lines between sequential waypoints
       if (wps.length > 1) {
         for (let i = 0; i < wps.length - 1; i++) {
           const wpA = wps[i];
@@ -1312,7 +1379,7 @@ function drawSmoothPolygon(
           ctx.stroke();
           ctx.setLineDash([]);
 
-          // Directional Arrows on Route Legs
+          // Directional Arrows and Leg Distance Badges
           const dx = ptB.x - ptA.x;
           const dy = ptB.y - ptA.y;
           const legLen = Math.hypot(dx, dy);
@@ -1334,6 +1401,23 @@ function drawSmoothPolygon(
             ctx.lineWidth = 2;
             ctx.stroke();
             ctx.restore();
+
+            if (legLen > 70) {
+              const legDistNm = calculateDistanceNm(wpA.latitude, wpA.longitude, wpB.latitude, wpB.longitude);
+              const legBrg = calculateBearing(wpA.latitude, wpA.longitude, wpB.latitude, wpB.longitude);
+              const legLabel = `${legDistNm.toFixed(1)} NM • ${formatHeadingDeg(legBrg)}`;
+              ctx.font = 'bold 8.5px monospace';
+              const lw = ctx.measureText(legLabel).width + 8;
+              ctx.fillStyle = isNightMode ? 'rgba(20, 5, 5, 0.85)' : 'rgba(15, 23, 42, 0.85)';
+              ctx.fillRect(midX - lw / 2, midY + 8, lw, 14);
+              ctx.strokeStyle = isNightMode ? '#7f1d1d' : '#0ea5e9';
+              ctx.lineWidth = 0.8;
+              ctx.strokeRect(midX - lw / 2, midY + 8, lw, 14);
+              ctx.fillStyle = isNightMode ? '#fca5a5' : '#7dd3fc';
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(legLabel, midX, midY + 15);
+            }
           }
         }
       }
@@ -1556,49 +1640,6 @@ function drawSmoothPolygon(
       ctx.arc(0, 0, 2, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
-      ctx.restore();
-    }
-
-    // =========================================================================
-    // 15. FLOATING COMPASS ROSE (Top-Left)
-    // =========================================================================
-    {
-      const roseX = 42;
-      const roseY = 42;
-      const roseRadius = 24;
-
-      ctx.save();
-      ctx.translate(roseX, roseY);
-
-      ctx.beginPath();
-      ctx.arc(0, 0, roseRadius, 0, Math.PI * 2);
-      ctx.fillStyle = isNightMode ? 'rgba(30, 5, 5, 0.75)' : 'rgba(15, 23, 42, 0.75)';
-      ctx.fill();
-      ctx.strokeStyle = isNightMode ? 'rgba(239, 68, 68, 0.4)' : 'rgba(56, 189, 248, 0.4)';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.moveTo(0, -roseRadius + 4);
-      ctx.lineTo(5, 0);
-      ctx.lineTo(0, -3);
-      ctx.closePath();
-      ctx.fillStyle = '#ef4444';
-      ctx.fill();
-
-      ctx.beginPath();
-      ctx.moveTo(0, roseRadius - 4);
-      ctx.lineTo(-5, 0);
-      ctx.lineTo(0, 3);
-      ctx.closePath();
-      ctx.fillStyle = '#94a3b8';
-      ctx.fill();
-
-      ctx.font = 'bold 9px sans-serif';
-      ctx.fillStyle = '#ef4444';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'bottom';
-      ctx.fillText('N', 0, -roseRadius + 2);
       ctx.restore();
     }
 
@@ -1941,21 +1982,36 @@ function drawSmoothPolygon(
         const startPos = touchStartPosRef.current;
         const distMoved = Math.hypot(lastPos.x - startPos.x, lastPos.y - startPos.y);
 
-        if (timeDiff < 300 && distMoved < 8) {
+        if (timeDiff < 350 && distMoved < 15) {
           const rect = canvas.getBoundingClientRect();
           const clickX = startPos.x - rect.left;
           const clickY = startPos.y - rect.top;
-          const { lat, lon } = canvasToGeo(clickX, clickY, rect.width, rect.height);
+          const now = Date.now();
+          const lastTap = lastTapRef.current;
+          const isDoubleTap = !!(
+            lastTap && 
+            (now - lastTap.time < 450) && 
+            Math.hypot(clickX - lastTap.x, clickY - lastTap.y) < 40
+          );
 
-          if (isAddWaypointMode && onMapClickAddWaypoint) {
-            onMapClickAddWaypoint(lat, lon);
-          } else if (activeRoute && onSelectWaypoint) {
-            for (const wp of activeRoute.waypoints) {
-              const wpPt = geoToCanvas(wp.longitude, wp.latitude, rect.width, rect.height);
-              const d = Math.hypot(clickX - wpPt.x, clickY - wpPt.y);
-              if (d <= 25) {
-                onSelectWaypoint(wp);
-                break;
+          if (isAddWaypointMode) {
+            if (isDoubleTap && onMapClickAddWaypoint) {
+              const { lat, lon } = canvasToGeo(clickX, clickY, rect.width, rect.height);
+              onMapClickAddWaypoint(lat, lon);
+              lastTapRef.current = null;
+            } else {
+              lastTapRef.current = { time: now, x: clickX, y: clickY };
+            }
+          } else {
+            lastTapRef.current = null;
+            if (activeRoute && onSelectWaypoint) {
+              for (const wp of activeRoute.waypoints) {
+                const wpPt = geoToCanvas(wp.longitude, wp.latitude, rect.width, rect.height);
+                const d = Math.hypot(clickX - wpPt.x, clickY - wpPt.y);
+                if (d <= 25) {
+                  onSelectWaypoint(wp);
+                  break;
+                }
               }
             }
           }
@@ -1986,30 +2042,42 @@ function drawSmoothPolygon(
     };
   }, [canvasToGeo, geoToCanvas, isAddWaypointMode, onMapClickAddWaypoint, activeRoute, onSelectWaypoint, isFullscreen]);
 
-  // Canvas Click
+  // Canvas Single Click (Selects existing waypoint when not adding)
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (isAddWaypointMode) {
+      // In Add Waypoint mode, single clicks are reserved for dragging/panning to prevent accidental waypoint drops!
+      return;
+    }
+
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    const { lat, lon } = canvasToGeo(x, y, rect.width, rect.height);
-
-    if (isAddWaypointMode && onMapClickAddWaypoint) {
-      onMapClickAddWaypoint(lat, lon);
-      return;
-    }
-
     if (activeRoute && onSelectWaypoint) {
       for (const wp of activeRoute.waypoints) {
         const wpPt = geoToCanvas(wp.longitude, wp.latitude, rect.width, rect.height);
         const dist = Math.hypot(x - wpPt.x, y - wpPt.y);
-        if (dist <= 20) {
+        if (dist <= 22) {
           onSelectWaypoint(wp);
           return;
         }
       }
+    }
+  };
+
+  // Canvas Double Click (Explicitly required for adding waypoints to destination)
+  const handleCanvasDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    if (isAddWaypointMode && onMapClickAddWaypoint) {
+      const { lat, lon } = canvasToGeo(x, y, rect.width, rect.height);
+      onMapClickAddWaypoint(lat, lon);
     }
   };
 
@@ -2136,6 +2204,7 @@ function drawSmoothPolygon(
         onMouseUp={handleMouseUp}
         onWheel={handleWheel}
         onClick={handleCanvasClick}
+        onDoubleClick={handleCanvasDoubleClick}
         className={`w-full h-full block select-none ${
           isAddWaypointMode ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
         }`}
@@ -2501,7 +2570,50 @@ function drawSmoothPolygon(
         </div>
       )}
 
-      {/* Right Floating Control Tools (Zoom, Fullscreen, Center, Fit & Layers) */}
+      {/* Floating Add Waypoint Guidance Banner */}
+      {isAddWaypointMode && (
+        <div className="absolute top-12 sm:top-14 left-2.5 right-14 sm:right-16 z-20 pointer-events-auto">
+          <div className={`p-2 sm:p-2.5 rounded-xl border backdrop-blur-md shadow-2xl flex items-center justify-between gap-2 text-xs font-mono animate-fadeIn ${
+            isNightMode ? 'bg-red-950/95 border-amber-500/80 text-amber-200' : 'bg-slate-900/95 border-amber-400 text-slate-100'
+          }`}>
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping shrink-0" />
+              <div className="flex flex-col min-w-0">
+                <span className="text-[11px] sm:text-xs font-bold text-amber-300 truncate">
+                  📍 دبل‌کلیک روی نقشه برای ثبت نقطه ({waypointCount}/50)
+                </span>
+                <span className="text-[9px] sm:text-[10px] text-slate-400 truncate">
+                  Double-click destination on chart to draw course leg
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              {waypointCount > 0 && (
+                <button
+                  type="button"
+                  onClick={handleClearLastWaypoint}
+                  className="px-2 py-1 rounded-lg bg-rose-950/80 border border-rose-700 hover:bg-rose-900 text-rose-200 text-[10px] sm:text-xs font-bold flex items-center gap-1 transition-all"
+                  title="Clear Last Waypoint (حذف از آخر به اول)"
+                >
+                  <Undo2 className="w-3 h-3" />
+                  <span>Clear WP</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleToggleAddWaypointMode}
+                className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white"
+                title="Finish adding waypoints"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Right Floating Control Tools (Zoom, Fullscreen, Center, Fit, Add/Clear WP & Layers) */}
       <div className={`absolute ${isFullscreen ? 'top-13 sm:top-15' : 'top-13 sm:top-15'} right-2 sm:right-3.5 flex flex-col gap-1.5 sm:gap-2 pointer-events-auto z-30`}>
         {/* Fullscreen Toggle Button */}
         <button
@@ -2532,6 +2644,44 @@ function drawSmoothPolygon(
           title="Fit entire route and map on screen"
         >
           <Maximize className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+        </button>
+
+        {/* Add Waypoint Button (Double-click destination to place up to 50 WPs) */}
+        <button
+          type="button"
+          onClick={handleToggleAddWaypointMode}
+          className={`relative w-8 h-8 sm:w-9 sm:h-9 rounded-xl border backdrop-blur-md transition-all shadow-xl flex items-center justify-center ${
+            isAddWaypointMode
+              ? 'bg-amber-500 border-amber-300 text-slate-950 font-black shadow-amber-500/40 scale-105 animate-pulse'
+              : isNightMode
+              ? 'bg-red-950/90 border-red-800 text-amber-400 hover:bg-red-900'
+              : 'bg-slate-900/90 border-slate-700 text-amber-400 hover:bg-slate-800 hover:border-amber-400'
+          }`}
+          title={isAddWaypointMode ? 'Deactivate Waypoint Add Mode' : `Add Waypoint (Double-Click Map) [${waypointCount}/50]`}
+        >
+          <MapPinPlus className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+          {waypointCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-4 h-4 px-0.5 rounded-full bg-cyan-500 text-slate-950 text-[9px] font-black font-mono flex items-center justify-center border border-slate-900 leading-none">
+              {waypointCount}
+            </span>
+          )}
+        </button>
+
+        {/* Clear Waypoint Button (Sequentially removes from last to first) */}
+        <button
+          type="button"
+          onClick={handleClearLastWaypoint}
+          disabled={waypointCount === 0}
+          className={`relative w-8 h-8 sm:w-9 sm:h-9 rounded-xl border backdrop-blur-md transition-all shadow-xl flex items-center justify-center ${
+            waypointCount === 0
+              ? 'opacity-40 cursor-not-allowed bg-slate-900/50 border-slate-800 text-slate-500'
+              : isNightMode
+              ? 'bg-red-950/90 border-red-800 text-rose-300 hover:bg-rose-900 active:scale-95'
+              : 'bg-slate-900/90 border-slate-700 text-rose-400 hover:bg-slate-800 hover:border-rose-400 hover:text-rose-300 active:scale-95'
+          }`}
+          title={waypointCount > 0 ? `Clear Waypoint (حذف به ترتیب از آخر به اول) [${waypointCount} نقطه]` : 'Clear Waypoint (هیچ نقطه‌ای برای حذف نیست)'}
+        >
+          <Undo2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </button>
 
         {/* Zoom In Button */}
