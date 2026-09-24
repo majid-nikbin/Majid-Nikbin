@@ -19,7 +19,6 @@ import { NmeaTransmitter } from './components/NmeaTransmitter';
 import { NmeaMonitor } from './components/NmeaMonitor';
 import { UsbDriverGuide } from './components/UsbDriverGuide';
 import { KeyGenTab } from './components/KeyGenTab';
-import { ActivationModal } from './components/ActivationModal';
 import { formatMarineDDM, formatHeadingDeg } from './utils/geo';
 import { Navigation, ArrowRight } from 'lucide-react';
 
@@ -414,14 +413,6 @@ export default function App() {
           </div>
         </div>
       </footer>
-
-      {/* Device License / 30-Day Trial Expiration Activation Modal */}
-      {!licenseStatus.isActivated && licenseStatus.isTrialExpired && (
-        <ActivationModal 
-          developerEmail={OFFICIAL_SUPPORT_EMAIL}
-          onActivated={() => setLicenseStatus(getLicenseStatus())} 
-        />
-      )}
     </div>
   );
 }

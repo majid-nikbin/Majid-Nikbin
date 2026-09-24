@@ -35,8 +35,20 @@ export const DEVELOPER_GOOGLE_EMAILS = [
 const GOOGLE_USER_STORAGE_KEY = 'mariner_google_user_v1';
 const AUTO_DEV_UNLOCKED_KEY = 'mariner_dev_auto_unlocked_v1';
 
-// 30 Days Trial Duration in Milliseconds (30 days * 24h * 60m * 60s * 1000ms)
+// 30 Days Trial Duration (General App is now free & unrestricted; OTG Hardware has 5-Month Warning & 6-Month Myket Expiration)
 export const TRIAL_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+
+// OTG Hardware Serial Specific Licensing (5 Months Warning / 6 Months Hard Expiration)
+export const OTG_WARNING_DAYS = 150; // 5 months (150 days)
+export const OTG_WARNING_MS = OTG_WARNING_DAYS * 24 * 60 * 60 * 1000;
+export const OTG_EXPIRATION_DAYS = 180; // 6 months (180 days)
+export const OTG_EXPIRATION_MS = OTG_EXPIRATION_DAYS * 24 * 60 * 60 * 1000;
+
+export const OTG_LICENSE_KEY = 'mariner_otg_activated_key_v1';
+export const OTG_WARNING_DISMISSED_KEY = 'mariner_otg_warn_dismissed_ts_v1';
+export const MYKET_APP_PACKAGE_ID = 'com.mariner.prolink';
+export const MYKET_DETAILS_INTENT = `myket://details?id=${MYKET_APP_PACKAGE_ID}`;
+export const MYKET_WEB_URL = `https://myket.ir/app/${MYKET_APP_PACKAGE_ID}`;
 
 export interface GoogleUserProfile {
   email: string;
@@ -55,6 +67,17 @@ export interface LicenseStatus {
   activatedKey?: string;
   activatedAt?: string;
   firstInstallDate: string;
+}
+
+export interface OtgLicenseStatus {
+  isActivated: boolean;
+  isWarningPeriod: boolean;
+  isWarningDismissed: boolean;
+  isExpired: boolean;
+  daysUsed: number;
+  daysRemaining: number;
+  firstInstallDate: string;
+  deviceId: string;
 }
 
 // Memory cache of synchronized license status
@@ -370,47 +393,141 @@ function getMonotonicNow(): number {
 }
 
 /**
- * Retrieves the complete license & 30-day trial status (Offline fast calculation)
+ * Retrieves the general application license status.
+ * Per user requirements, the core application (GPS, Compass, Route, Charts, Monitor)
+ * is now 100% unlocked and free permanently without activation prompts.
  */
 export function getLicenseStatus(): LicenseStatus {
-  if (cachedLicenseStatus) {
-    return cachedLicenseStatus;
-  }
+  const deviceId = getOrCreateDeviceId();
+  const firstInstallTs = getFirstInstallTimestamp();
+  
+  return {
+    isActivated: true,
+    isTrialActive: false,
+    isTrialExpired: false,
+    daysRemaining: 3650,
+    trialTotalDays: 365,
+    deviceId,
+    activatedKey: 'ACT-PERMANENT-MARINER',
+    firstInstallDate: new Date(firstInstallTs).toLocaleDateString(),
+  };
+}
 
+/**
+ * Checks if the 5-month OTG warning was dismissed by the user
+ */
+export function isOtgWarningDismissed(): boolean {
+  try {
+    const raw = localStorage.getItem(OTG_WARNING_DISMISSED_KEY);
+    if (!raw) return false;
+    const dismissedTs = parseInt(raw, 10);
+    // Dismissal lasts 7 days before softly reminding again
+    return Date.now() - dismissedTs < 7 * 24 * 60 * 60 * 1000;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * User dismisses the 5-month OTG warning banner ("پیام بعد ۵ ماه ظاهر بشه، و مخفی بشه")
+ */
+export function dismissOtgWarning(): void {
+  try {
+    localStorage.setItem(OTG_WARNING_DISMISSED_KEY, Date.now().toString());
+  } catch {}
+}
+
+/**
+ * Retrieves the specific OTG Hardware Serial Port License status.
+ * - Months 0-5 (0-150 days): Free trial, fully active.
+ * - Month 5-6 (150-180 days): Warning period ("منقضی می‌شود - خرید از مایکت"), dismissible.
+ * - Month 6+ (180+ days): Hardware OTG blocked until purchased on Myket or activated.
+ */
+export function getOtgLicenseStatus(): OtgLicenseStatus {
   const deviceId = getOrCreateDeviceId();
   const firstInstallTs = getFirstInstallTimestamp();
   const effectiveNow = getMonotonicNow();
-  
-  const elapsedMs = effectiveNow - firstInstallTs;
-  const remainingMs = TRIAL_DURATION_MS - elapsedMs;
-  const daysRemaining = Math.max(0, Math.ceil(remainingMs / (1000 * 60 * 60 * 24)));
-  const isTrialExpired = remainingMs <= 0;
-  const isTrialActive = !isTrialExpired;
 
-  // Check saved license key across storage tiers
-  const savedKey = localStorage.getItem(LICENSE_STORAGE_KEY) || getCookie(LICENSE_STORAGE_KEY);
-  if (savedKey && verifyActivationCode(deviceId, savedKey)) {
+  // Check if developer unlocked or permanent license key is present in any tier
+  const savedKey = localStorage.getItem(OTG_LICENSE_KEY) || 
+                   localStorage.getItem(LICENSE_STORAGE_KEY) || 
+                   getCookie(OTG_LICENSE_KEY) ||
+                   getCookie(LICENSE_STORAGE_KEY);
+  
+  const isDev = isDeveloperModeUnlocked();
+  if (isDev || (savedKey && verifyActivationCode(deviceId, savedKey))) {
     return {
       isActivated: true,
-      isTrialActive: false,
-      isTrialExpired: false,
-      daysRemaining: 0,
-      trialTotalDays: 30,
-      deviceId,
-      activatedKey: savedKey,
+      isWarningPeriod: false,
+      isWarningDismissed: false,
+      isExpired: false,
+      daysUsed: Math.floor((effectiveNow - firstInstallTs) / (1000 * 60 * 60 * 24)),
+      daysRemaining: 9999,
       firstInstallDate: new Date(firstInstallTs).toLocaleDateString(),
+      deviceId
     };
   }
 
+  const elapsedMs = Math.max(0, effectiveNow - firstInstallTs);
+  const daysUsed = Math.floor(elapsedMs / (1000 * 60 * 60 * 24));
+  const remainingUntil6Months = Math.max(0, OTG_EXPIRATION_MS - elapsedMs);
+  const daysRemaining = Math.ceil(remainingUntil6Months / (1000 * 60 * 60 * 24));
+
+  if (elapsedMs >= OTG_EXPIRATION_MS) {
+    // 6 months expired: Hard lock on OTG serial feature
+    return {
+      isActivated: false,
+      isWarningPeriod: false,
+      isWarningDismissed: false,
+      isExpired: true,
+      daysUsed,
+      daysRemaining: 0,
+      firstInstallDate: new Date(firstInstallTs).toLocaleDateString(),
+      deviceId
+    };
+  }
+
+  if (elapsedMs >= OTG_WARNING_MS) {
+    // 5 months grace period: Warning active, but dismissible
+    return {
+      isActivated: false,
+      isWarningPeriod: true,
+      isWarningDismissed: isOtgWarningDismissed(),
+      isExpired: false,
+      daysUsed,
+      daysRemaining,
+      firstInstallDate: new Date(firstInstallTs).toLocaleDateString(),
+      deviceId
+    };
+  }
+
+  // Under 5 months: normal active usage
   return {
     isActivated: false,
-    isTrialActive,
-    isTrialExpired,
+    isWarningPeriod: false,
+    isWarningDismissed: false,
+    isExpired: false,
+    daysUsed,
     daysRemaining,
-    trialTotalDays: 30,
-    deviceId,
     firstInstallDate: new Date(firstInstallTs).toLocaleDateString(),
+    deviceId
   };
+}
+
+/**
+ * Permanently activates the OTG hardware serial port with a valid key
+ */
+export function activateOtgLicense(key: string): boolean {
+  const deviceId = getOrCreateDeviceId();
+  if (verifyActivationCode(deviceId, key)) {
+    try {
+      localStorage.setItem(OTG_LICENSE_KEY, key);
+      setCookie(OTG_LICENSE_KEY, key);
+      saveToIndexedDB(OTG_LICENSE_KEY, key);
+    } catch {}
+    return true;
+  }
+  return false;
 }
 
 /**

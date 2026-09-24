@@ -30,11 +30,13 @@ import {
 import { SerialPortStatus } from '../types';
 import { 
   getLicenseStatus, 
+  getOtgLicenseStatus,
   OFFICIAL_SUPPORT_EMAIL,
   isDeveloperModeUnlocked,
   setDeveloperMode,
   DEVELOPER_PASSCODE
 } from '../services/licenseService';
+import { APP_VERSION, APP_BUILD, APP_RELEASE_NAME } from '../config/version';
 
 export type ActiveTab = 'nav' | 'route' | 'transmit' | 'monitor' | 'drivers' | 'keygen';
 
@@ -221,8 +223,8 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="font-mono font-black text-sm sm:text-base tracking-wider text-white group-hover:text-cyan-300 transition-colors">
                   MARINER <span className="text-cyan-400 group-hover:text-cyan-300">PRO-LINK</span>
                 </span>
-                <span className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] font-mono text-cyan-300 font-bold">
-                  V1.0
+                <span className="px-1.5 py-0.5 rounded bg-slate-800 border border-cyan-500/40 text-[10px] font-mono text-cyan-300 font-bold shadow-sm">
+                  v{APP_VERSION}
                 </span>
               </div>
               <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
@@ -477,8 +479,8 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
                   Software Version
                 </span>
-                <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-500/40 px-2 py-0.5 rounded">
-                  V1.0 Release
+                <span className="text-xs font-mono font-bold text-cyan-300 bg-cyan-950/60 border border-cyan-500/40 px-2 py-0.5 rounded shadow-sm">
+                  v{APP_VERSION} ({APP_BUILD})
                 </span>
               </div>
 
@@ -532,27 +534,43 @@ export const Header: React.FC<HeaderProps> = ({
 
               <div className="flex items-center justify-between border-t border-slate-800/80 pt-2.5">
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                  License Status
+                  Core Navigation
+                </span>
+                <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-500/40 px-2 py-0.5 rounded">
+                  ✓ Unlocked & Free
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between border-t border-slate-800/80 pt-2.5">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  USB OTG License
                 </span>
                 {(() => {
-                  const lic = getLicenseStatus();
-                  if (lic.isActivated) {
+                  const otgLic = getOtgLicenseStatus();
+                  if (otgLic.isActivated) {
                     return (
                       <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-500/40 px-2 py-0.5 rounded">
                         ✓ Activated & Permanent
                       </span>
                     );
                   }
-                  if (lic.isTrialActive) {
+                  if (otgLic.isExpired) {
                     return (
-                      <span className="text-xs font-mono font-bold text-cyan-300 bg-cyan-950/60 border border-cyan-500/40 px-2 py-0.5 rounded">
-                        30-Day Free Trial ({lic.daysRemaining} days left)
+                      <span className="text-xs font-mono font-bold text-rose-400 bg-rose-950/60 border border-rose-500/40 px-2 py-0.5 rounded">
+                        Expired (Available on Myket)
+                      </span>
+                    );
+                  }
+                  if (otgLic.isWarningPeriod) {
+                    return (
+                      <span className="text-xs font-mono font-bold text-amber-300 bg-amber-950/60 border border-amber-500/40 px-2 py-0.5 rounded">
+                        Expires in {otgLic.daysRemaining}d (Buy Myket)
                       </span>
                     );
                   }
                   return (
-                    <span className="text-xs font-mono font-bold text-rose-400 bg-rose-950/60 border border-rose-500/40 px-2 py-0.5 rounded">
-                      Trial Expired - Activation Required
+                    <span className="text-xs font-mono font-bold text-cyan-300 bg-cyan-950/60 border border-cyan-500/40 px-2 py-0.5 rounded">
+                      6-Mo Free Trial ({otgLic.daysRemaining}d left)
                     </span>
                   );
                 })()}

@@ -2233,7 +2233,7 @@ function drawSmoothPolygon(
     setAutoFollowVessel(false);
   };
 
-  // Live Navigation Values for Fullscreen HUD
+  // Live Navigation Values for Fullscreen HUD & Bottom Telemetry Bar
   const directDistanceNm = targetWaypoint 
     ? calculateDistanceNm(vesselLat, vesselLon, targetWaypoint.latitude, targetWaypoint.longitude)
     : (navigationSession.distanceNm || 0);
@@ -2242,7 +2242,16 @@ function drawSmoothPolygon(
     ? calculateBearing(vesselLat, vesselLon, targetWaypoint.latitude, targetWaypoint.longitude)
     : (navigationSession.bearingDeg || 0);
 
-  const currentSpeedKnots = gps.speedKnots || 0;
+  // Sorted waypoints and first waypoint calculation (for route navigation)
+  const sortedRouteWaypoints = (activeRoute && activeRoute.waypoints && activeRoute.waypoints.length > 0)
+    ? [...activeRoute.waypoints].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    : [];
+  const firstWaypoint = sortedRouteWaypoints.length > 0 ? sortedRouteWaypoints[0] : targetWaypoint;
+  const distanceToFirstWpNm = firstWaypoint
+    ? calculateDistanceNm(vesselLat, vesselLon, firstWaypoint.latitude, firstWaypoint.longitude)
+    : null;
+
+  const currentSpeedKnots = gps.speedKnots !== null ? gps.speedKnots : 0;
   const isRouteOrNavActive = navigationSession.isNavigating || !!activeRoute || !!targetWaypoint || isAddWaypointMode;
   const validGpsHeading = (gps.heading !== null && !isNaN(gps.heading)) ? gps.heading : null;
   const currentHeading = activeHeadingMode === 'gps'
@@ -2295,9 +2304,9 @@ function drawSmoothPolygon(
 
       {/* FULL SCREEN COMPACT HIGH-CONTRAST MARINE NAVIGATION HUD */}
       {isFullscreen && (
-        <div className="absolute top-2 sm:top-3 left-2 sm:left-4 right-2 sm:right-4 z-30 pointer-events-none flex items-center justify-between gap-1.5 sm:gap-2">
+        <div className="absolute top-1.5 sm:top-2.5 left-1.5 sm:left-3 right-1.5 sm:right-3 z-30 pointer-events-none flex flex-wrap items-center justify-between gap-1 sm:gap-2 max-w-[calc(100vw-0.75rem)] sm:max-w-none">
           {/* Left Cluster: Compact Marine HUD Readouts */}
-          <div className="pointer-events-auto flex items-center gap-1 sm:gap-1.5 font-mono overflow-x-auto no-scrollbar py-0.5 max-w-[calc(100vw-140px)] sm:max-w-none">
+          <div className="pointer-events-auto flex items-center gap-1 sm:gap-1.5 font-mono overflow-x-auto no-scrollbar py-0.5 max-w-full sm:max-w-[55vw] shrink-0">
             {/* Vessel Speed (SOG) */}
             <div className={`px-2 py-1 rounded-lg border backdrop-blur-md flex items-center gap-1.5 shadow-lg shrink-0 ${
               isNightMode ? 'bg-red-950/90 border-red-800' : 'bg-slate-900/90 border-slate-700'
@@ -2381,14 +2390,14 @@ function drawSmoothPolygon(
             )}
           </div>
 
-          {/* Right Cluster: Heading Source, Tile/Vector Mode, Pre-cache & Exit Full Screen */}
-          <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* Right Cluster: Heading Source, Tile/Vector Mode, Pre-cache & Exit Full Screen (Overflow Safe) */}
+          <div className="pointer-events-auto flex items-center gap-1 sm:gap-1.5 shrink-0 max-w-full overflow-x-auto no-scrollbar py-0.5">
             {/* Heading Source Toggle (GPS COG vs Magnetic Compass) */}
-            <div className="flex items-center bg-slate-900/90 p-0.5 rounded-lg border border-slate-700 text-xs font-mono shadow-lg backdrop-blur-md">
+            <div className="flex items-center bg-slate-900/90 p-0.5 rounded-lg border border-slate-700 text-xs font-mono shadow-lg backdrop-blur-md shrink-0">
               <button
                 type="button"
                 onClick={() => setHeadingMode('gps')}
-                className={`px-2 py-0.5 rounded transition-all text-[9px] sm:text-[10px] font-bold flex items-center gap-1 ${
+                className={`px-1.5 sm:px-2 py-0.5 rounded transition-all text-[9px] sm:text-[10px] font-bold flex items-center gap-1 ${
                   activeHeadingMode === 'gps'
                     ? 'bg-cyan-600 text-white shadow'
                     : 'text-slate-400 hover:text-white'
@@ -2396,12 +2405,12 @@ function drawSmoothPolygon(
                 title="GPS Course Over Ground Heading (Default)"
               >
                 <Radio className="w-2.5 h-2.5" />
-                <span>GPS COG</span>
+                <span className="hidden xs:inline">GPS </span>COG
               </button>
               <button
                 type="button"
                 onClick={() => setHeadingMode('compass')}
-                className={`px-2 py-0.5 rounded transition-all text-[9px] sm:text-[10px] font-bold flex items-center gap-1 ${
+                className={`px-1.5 sm:px-2 py-0.5 rounded transition-all text-[9px] sm:text-[10px] font-bold flex items-center gap-1 ${
                   activeHeadingMode === 'compass'
                     ? 'bg-amber-600 text-white shadow'
                     : 'text-slate-400 hover:text-white'
@@ -2414,11 +2423,11 @@ function drawSmoothPolygon(
             </div>
 
             {/* High-Res Tiles vs Pure Vector Toggle */}
-            <div className="flex items-center bg-slate-900/90 p-0.5 rounded-lg border border-slate-700 text-xs font-mono shadow-lg backdrop-blur-md">
+            <div className="flex items-center bg-slate-900/90 p-0.5 rounded-lg border border-slate-700 text-xs font-mono shadow-lg backdrop-blur-md shrink-0">
               <button
                 type="button"
                 onClick={() => setMapMode('high_res')}
-                className={`px-2 py-0.5 rounded transition-all text-[9px] sm:text-[10px] font-bold flex items-center gap-1 ${
+                className={`px-1.5 sm:px-2 py-0.5 rounded transition-all text-[9px] sm:text-[10px] font-bold flex items-center gap-1 ${
                   mapMode === 'high_res'
                     ? 'bg-emerald-600 text-white shadow'
                     : 'text-slate-400 hover:text-white'
@@ -2434,7 +2443,7 @@ function drawSmoothPolygon(
               <button
                 type="button"
                 onClick={() => setMapMode('vector')}
-                className={`px-2 py-0.5 rounded transition-all text-[9px] sm:text-[10px] font-bold flex items-center gap-1 ${
+                className={`px-1.5 sm:px-2 py-0.5 rounded transition-all text-[9px] sm:text-[10px] font-bold flex items-center gap-1 ${
                   mapMode === 'vector'
                     ? 'bg-cyan-600 text-white shadow'
                     : 'text-slate-400 hover:text-white'
@@ -2446,12 +2455,12 @@ function drawSmoothPolygon(
               </button>
             </div>
 
-            {/* Pre-cache Viewport button */}
+            {/* Pre-cache Viewport button - Compact, never overflows phone edge */}
             <button
               type="button"
               onClick={handlePreCacheCurrentView}
               disabled={isPreCaching || !isOnline}
-              className={`px-2 py-1 rounded-lg border text-[9px] sm:text-[10px] font-mono flex items-center gap-1 shadow-lg transition-all ${
+              className={`px-2 py-1 rounded-lg border text-[9px] sm:text-[10px] font-mono flex items-center gap-1 shadow-lg transition-all shrink-0 ${
                 isPreCaching
                   ? 'bg-amber-500/20 border-amber-500 text-amber-300 animate-pulse'
                   : !isOnline
@@ -2461,7 +2470,7 @@ function drawSmoothPolygon(
               title={isOnline ? "Download and cache current viewport tiles for offline sailing" : "Offline: Serving saved tiles"}
             >
               <Download className="w-3 h-3" />
-              <span>{isPreCaching ? `Caching ${preCacheProgress?.done}/${preCacheProgress?.total}...` : 'Cache Area'}</span>
+              <span>{isPreCaching ? 'Caching...' : <span className="inline">Cache</span>}</span>
             </button>
 
             {/* Exit Full Screen Button */}
@@ -2697,7 +2706,7 @@ function drawSmoothPolygon(
       )}
 
       {/* Right Floating Control Tools (Zoom, Fullscreen, Center, Fit, Add/Clear WP & Layers) */}
-      <div className={`absolute ${isFullscreen ? 'top-13 sm:top-15' : 'top-13 sm:top-15'} right-2 sm:right-3.5 flex flex-col gap-1.5 sm:gap-2 pointer-events-auto z-30`}>
+      <div className={`absolute ${isFullscreen ? 'top-14 sm:top-15' : 'top-13 sm:top-15'} right-2 sm:right-3.5 flex flex-col gap-1.5 sm:gap-2 pointer-events-auto z-30`}>
         {/* Fullscreen Toggle Button */}
         <button
           id="btn-toggle-fullscreen"
@@ -3362,6 +3371,77 @@ function drawSmoothPolygon(
               className="rounded accent-cyan-500"
             />
           </label>
+        </div>
+      )}
+
+      {/* Bottom Marine Navigate HUD: Speed (SOG) & Distance to First Waypoint */}
+      {navigationSession.isNavigating && (
+        <div className={`absolute bottom-2.5 sm:bottom-3.5 left-1/2 -translate-x-1/2 z-30 pointer-events-auto max-w-[calc(100vw-1.5rem)] px-3 py-1.5 rounded-xl border shadow-2xl backdrop-blur-md flex items-center gap-2 sm:gap-3 text-xs font-mono animate-fadeIn ${
+          isNightMode 
+            ? 'bg-red-950/95 border-red-700 text-red-200' 
+            : 'bg-slate-900/95 border-amber-500/80 text-slate-100 shadow-[0_0_20px_rgba(245,158,11,0.25)]'
+        }`}>
+          {/* Speed over Ground (SOG) */}
+          <div className="flex items-center gap-1.5">
+            <Gauge className="w-3.5 h-3.5 text-emerald-400 shrink-0 animate-pulse" />
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">SPEED:</span>
+            <span className="text-xs sm:text-sm font-black text-emerald-400 leading-none">
+              {(gps.speedKnots !== null ? gps.speedKnots : currentSpeedKnots).toFixed(1)}
+            </span>
+            <span className="text-[9px] text-slate-400 leading-none">kts</span>
+          </div>
+
+          <div className="w-px h-4 bg-slate-700/80" />
+
+          {/* Distance to First Waypoint */}
+          <div className="flex items-center gap-1.5">
+            <MapPin className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+              {activeRoute && activeRoute.waypoints && activeRoute.waypoints.length > 1 ? 'DIST WP1:' : 'DIST WP:'}
+            </span>
+            <span className="text-xs sm:text-sm font-black text-cyan-300 leading-none">
+              {distanceToFirstWpNm !== null ? distanceToFirstWpNm.toFixed(2) : directDistanceNm.toFixed(2)}
+            </span>
+            <span className="text-[9px] text-slate-400 leading-none">NM</span>
+            {firstWaypoint && (
+              <span className="text-[10px] text-slate-400 hidden sm:inline truncate max-w-[80px]">
+                ({firstWaypoint.name})
+              </span>
+            )}
+          </div>
+
+          {/* Target Waypoint Distance (if multi-waypoint route) */}
+          {activeRoute && activeRoute.waypoints && activeRoute.waypoints.length > 1 && (
+            <>
+              <div className="hidden xs:block w-px h-4 bg-slate-700/80" />
+              <div className="hidden xs:flex items-center gap-1.5">
+                <Navigation className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">LEG:</span>
+                <span className="text-xs sm:text-sm font-black text-amber-400 leading-none">
+                  {directDistanceNm.toFixed(2)}
+                </span>
+                <span className="text-[9px] text-slate-400 leading-none">NM</span>
+              </div>
+            </>
+          )}
+
+          {/* Bearing (BRG) */}
+          <div className="hidden md:flex items-center gap-1 border-l border-slate-700/80 pl-2">
+            <span className="text-[10px] text-slate-400 font-bold">BRG:</span>
+            <span className="text-xs font-black text-white leading-none">
+              {formatHeadingDeg(directBearingDeg)}
+            </span>
+          </div>
+
+          {/* ETA */}
+          {currentEta !== '---' && (
+            <div className="hidden lg:flex items-center gap-1 border-l border-slate-700/80 pl-2">
+              <span className="text-[10px] text-slate-400 font-bold">ETA:</span>
+              <span className="text-xs font-black text-indigo-300 leading-none">
+                {currentEta}
+              </span>
+            </div>
+          )}
         </div>
       )}
 
