@@ -9,12 +9,16 @@ import {
   X,
   Zap,
   Globe,
-  ExternalLink
+  ExternalLink,
+  Moon,
+  ShieldCheck,
+  Cpu
 } from 'lucide-react';
 import { CompassData, GpsData, NmeaConfig, SerialPortStatus } from '../types';
 import { AVAILABLE_SENTENCES, generateNmeaSentences } from '../utils/nmea';
 import { serialService } from '../services/serialService';
 import { Browser } from '@capacitor/browser';
+import { backgroundKeepAlive } from '../utils/backgroundKeepAlive';
 
 interface NmeaTransmitterProps {
   gps: GpsData;
@@ -38,6 +42,13 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [showChromeModal, setShowChromeModal] = useState<boolean>(false);
+  const [backgroundMode, setBackgroundMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('mariner_nmea_bg_keepalive') !== 'false';
+    } catch {
+      return true;
+    }
+  });
 
   // Background fallback URL for WebUSB/WebSerial hardware driver runtime (never exposed in UI or source strings)
   const HARDWARE_SERIAL_FALLBACK_URL = typeof atob !== 'undefined'
@@ -68,34 +79,43 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
     setLiveSentences(generated);
   }, [gps, compass, config]);
 
-  // Transmit interval loop when enabled & port connected (rock-solid, does not reset on compass movements)
+  // Transmit interval loop with Background & Sleep Keep-Alive
   useEffect(() => {
-    if (!isTransmitting || !serialStatus.connected) return;
-
-    // Optional WakeLock during active transmission so phone doesn't sleep
-    let wakeLockSentinel: any = null;
-    if ('wakeLock' in navigator) {
-      (navigator as any).wakeLock.request('screen').then((sentinel: any) => {
-        wakeLockSentinel = sentinel;
-      }).catch(() => {});
+    if (!isTransmitting || !serialStatus.connected) {
+      backgroundKeepAlive.stop();
+      return;
     }
 
-    const interval = setInterval(async () => {
+    const sendSentenceTick = async () => {
       const sentences = generateNmeaSentences(
         latestGpsRef.current,
         latestCompassRef.current,
         latestConfigRef.current
       );
       await serialService.writeSentences(sentences);
-    }, config.intervalMs);
+    };
+
+    if (backgroundMode) {
+      // Unthrottled Web Worker + Silent Audio Loop + Screen WakeLock
+      backgroundKeepAlive.start(config.intervalMs, sendSentenceTick);
+    } else {
+      backgroundKeepAlive.stop();
+      const interval = setInterval(sendSentenceTick, config.intervalMs);
+      return () => clearInterval(interval);
+    }
 
     return () => {
-      clearInterval(interval);
-      if (wakeLockSentinel) {
-        wakeLockSentinel.release().catch(() => {});
-      }
+      backgroundKeepAlive.stop();
     };
-  }, [isTransmitting, serialStatus.connected, config.intervalMs]);
+  }, [isTransmitting, serialStatus.connected, config.intervalMs, backgroundMode]);
+
+  const toggleBackgroundMode = () => {
+    const next = !backgroundMode;
+    setBackgroundMode(next);
+    try {
+      localStorage.setItem('mariner_nmea_bg_keepalive', next ? 'true' : 'false');
+    } catch {}
+  };
 
   // Click on "Connect USB OTG" (Direct hardware connection in Chrome / WebUSB)
   const handleConnectUsbClick = async () => {
@@ -302,21 +322,79 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
         </div>
       </div>
 
-      {/* Continue in Chrome Browser Modal for USB Serial Access - Completely Private (No links or GitHub shown) */}
+      {/* Background Transmission & Screen Sleep Keep-Alive Card */}
+      <div className="p-3.5 bg-slate-900/90 rounded-xl border border-slate-700/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-inner">
+        <div className="flex items-center gap-3">
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+            backgroundMode 
+              ? isTransmitting 
+                ? 'bg-emerald-600 text-white shadow-[0_0_10px_rgba(16,185,129,0.4)]'
+                : 'bg-cyan-700/60 text-cyan-200'
+              : 'bg-slate-800 text-slate-500'
+          }`}>
+            <Moon className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-white uppercase tracking-wider">
+                Background TX & Screen-Off Keep-Alive
+              </span>
+              <span className={`px-2 py-0.5 text-[9px] font-bold rounded uppercase tracking-wider ${
+                backgroundMode && isTransmitting
+                  ? 'bg-emerald-950 border border-emerald-500/60 text-emerald-300'
+                  : backgroundMode
+                  ? 'bg-cyan-950 border border-cyan-500/50 text-cyan-300'
+                  : 'bg-slate-800 border border-slate-700 text-slate-400'
+              }`}>
+                {backgroundMode && isTransmitting
+                  ? 'ACTIVE BACKGROUND SERVICE'
+                  : backgroundMode
+                  ? 'READY FOR SLEEP MODE'
+                  : 'DISABLED'}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 font-mono mt-0.5">
+              {backgroundMode
+                ? 'Continuous NMEA transmission remains active when phone screen turns off or locks (Web Worker + Audio Heartbeat).'
+                : 'Background mode disabled: Transmission will pause when screen locks.'}
+            </p>
+          </div>
+        </div>
+
+        {/* Toggle Switch */}
+        <button
+          type="button"
+          onClick={toggleBackgroundMode}
+          className={`shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-mono font-bold transition-all ${
+            backgroundMode
+              ? 'bg-emerald-600/20 border-emerald-500/60 text-emerald-300 hover:bg-emerald-600/30'
+              : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-750 hover:text-slate-200'
+          }`}
+        >
+          <span className={`w-2 h-2 rounded-full ${
+            backgroundMode 
+              ? isTransmitting ? 'bg-emerald-400 animate-pulse' : 'bg-emerald-400' 
+              : 'bg-slate-500'
+          }`} />
+          <span>{backgroundMode ? 'Keep-Alive: ON' : 'Keep-Alive: OFF'}</span>
+        </button>
+      </div>
+
+      {/* Continue in Chrome Browser Modal for USB Serial Access - Concise, Minimal English */}
       {showChromeModal && (
         <div 
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn"
           onClick={() => setShowChromeModal(false)}
         >
           <div 
-            className="relative max-w-md w-full bg-slate-900 border border-cyan-500/60 rounded-2xl p-6 shadow-2xl flex flex-col gap-4 text-slate-200"
+            className="relative max-w-sm w-full bg-slate-900 border border-cyan-500/60 rounded-2xl p-5 shadow-2xl flex flex-col gap-3.5 text-slate-200"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
               <div className="flex items-center gap-2 text-cyan-300 font-bold text-sm">
-                <Usb className="w-5 h-5 text-cyan-400" />
-                <span>دسترسی مستقیم پورت سخت‌افزاری USB OTG</span>
+                <Usb className="w-4 h-4 text-cyan-400" />
+                <span>USB OTG Serial Port</span>
               </div>
               <button
                 type="button"
@@ -327,41 +405,38 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
               </button>
             </div>
 
-            {/* Hardware Interface Info - 100% clean and private, NO URL or GitHub details */}
-            <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 flex flex-col gap-2.5">
-              <div className="flex items-center gap-2 text-amber-400 text-xs font-bold">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span>نیاز به دسترسی سخت‌افزاری (Direct Web Serial Engine)</span>
+            {/* Hardware Interface Info - Concise English words */}
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex flex-col gap-2">
+              <div className="flex items-center gap-2 text-cyan-400 text-xs font-semibold">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>Chrome Web Serial Engine</span>
               </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                جهت برقراری ارتباط دوطرفه و پایدار با کابل OTG و چیپست‌های مبدل سریال (CH340 / CP2102 / FTDI / MAX485)، مرورگر استاندارد Chrome مورد نیاز است.
+              <p className="text-xs text-slate-300 leading-relaxed font-sans">
+                Direct USB OTG access for CH340, CP2102, FTDI, and MAX485 adapters.
               </p>
-              <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400 font-mono">
-                <span className="flex items-center gap-1.5 text-emerald-400">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                  درایور سخت‌افزاری آماده
-                </span>
-                <span className="text-slate-500">IEC 61162-1</span>
+              <div className="pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                <span className="text-emerald-400">Driver: Ready</span>
+                <span className="text-slate-500">NMEA 0183</span>
               </div>
             </div>
 
             {/* Actions */}
-            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
               <button
                 type="button"
                 onClick={() => setShowChromeModal(false)}
-                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 transition-colors"
+                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 transition-colors"
               >
-                انصراف
+                Cancel
               </button>
 
               <button
                 type="button"
                 onClick={handleOpenInChrome}
-                className="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-2 shadow-lg shadow-cyan-950/60 uppercase tracking-wider font-mono transition-all active:scale-95"
+                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 shadow-lg shadow-cyan-950/60 uppercase tracking-wider font-mono transition-all active:scale-95"
               >
-                <ExternalLink className="w-4 h-4" />
-                <span>اتصال و اجرا در Chrome</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Open in Chrome</span>
               </button>
             </div>
           </div>

@@ -34,7 +34,8 @@ import {
   HardDrive,
   Trash2,
   CheckCircle2,
-  Database
+  Database,
+  Search
 } from 'lucide-react';
 import { GpsData, CompassData, MarineRoute, Waypoint, NavigationSession } from '../types';
 import { 
@@ -684,11 +685,25 @@ function drawSmoothPolygon(
         maxLat: canvasToGeo(width, 0, width, height).lat,
       };
 
-      const step = zoom > 150 ? 0.05 : zoom > 70 ? 0.1 : zoom > 30 ? 0.5 : zoom > 10 ? 1 : 5;
+      const step = 
+        zoom > 200000 ? 0.00005 :
+        zoom > 80000  ? 0.0001 :
+        zoom > 30000  ? 0.0005 :
+        zoom > 10000  ? 0.001 :
+        zoom > 3000   ? 0.002 :
+        zoom > 1000   ? 0.005 :
+        zoom > 400    ? 0.01 :
+        zoom > 150    ? 0.05 : 
+        zoom > 70     ? 0.1 : 
+        zoom > 30     ? 0.5 : 
+        zoom > 10     ? 1 : 5;
+
       const startLon = Math.floor(bounds.minLon / step) * step;
       const maxLon = Math.ceil(bounds.maxLon / step) * step;
       const startLat = Math.floor(bounds.minLat / step) * step;
       const maxLat = Math.ceil(bounds.maxLat / step) * step;
+
+      const decimals = step < 0.0001 ? 5 : step < 0.001 ? 4 : step < 0.01 ? 3 : step < 0.1 ? 2 : step < 1 ? 1 : 0;
 
       // Longitude lines
       for (let lon = startLon; lon <= maxLon; lon += step) {
@@ -698,7 +713,7 @@ function drawSmoothPolygon(
         ctx.lineTo(pt.x, height);
         ctx.stroke();
 
-        const label = `${Math.abs(lon).toFixed(step < 1 ? 1 : 0)}°${lon >= 0 ? 'E' : 'W'}`;
+        const label = `${Math.abs(lon).toFixed(decimals)}°${lon >= 0 ? 'E' : 'W'}`;
         ctx.fillText(label, pt.x + 4, height - 8);
       }
 
@@ -710,7 +725,7 @@ function drawSmoothPolygon(
         ctx.lineTo(width, pt.y);
         ctx.stroke();
 
-        const label = `${Math.abs(lat).toFixed(step < 1 ? 1 : 0)}°${lat >= 0 ? 'N' : 'S'}`;
+        const label = `${Math.abs(lat).toFixed(decimals)}°${lat >= 0 ? 'N' : 'S'}`;
         ctx.fillText(label, 8, pt.y - 4);
       }
     }
@@ -1574,24 +1589,50 @@ function drawSmoothPolygon(
         : (compass.trueHeading || compass.magneticHeading || validGpsHeading || 0);
       const headingRad = (headingDeg * Math.PI) / 180;
 
-      if (showRangeRings && zoom > 15) {
+      if (showRangeRings) {
         const boatLatRad = (vesselLat * Math.PI) / 180;
         const cosBoatLat = Math.max(0.15, Math.cos(boatLatRad));
         const nmPixels = (zoom * 10) / (60 * cosBoatLat);
-        [1, 2, 5].forEach((ringNm) => {
-          const radius = nmPixels * ringNm;
-          ctx.beginPath();
-          ctx.arc(boatPt.x, boatPt.y, radius, 0, Math.PI * 2);
-          ctx.strokeStyle = isNightMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(56, 189, 248, 0.28)';
-          ctx.lineWidth = 1;
-          ctx.setLineDash([3, 4]);
-          ctx.stroke();
-          ctx.setLineDash([]);
+        const mPixels = nmPixels / 1852;
 
-          ctx.fillStyle = isNightMode ? 'rgba(239, 68, 68, 0.6)' : 'rgba(148, 163, 184, 0.8)';
-          ctx.font = '8.5px monospace';
-          ctx.fillText(`${ringNm}NM`, boatPt.x + radius + 2, boatPt.y - 2);
-        });
+        if (zoom > 1000) {
+          // Harbor Docking & Close-Quarters Navigation: Rings in Meters (25m, 50m, 100m, 250m)
+          [25, 50, 100, 250].forEach((ringM) => {
+            const radius = mPixels * ringM;
+            if (radius > 12 && radius < Math.max(width, height) * 1.8) {
+              ctx.beginPath();
+              ctx.arc(boatPt.x, boatPt.y, radius, 0, Math.PI * 2);
+              ctx.strokeStyle = isNightMode ? 'rgba(239, 68, 68, 0.35)' : 'rgba(56, 189, 248, 0.35)';
+              ctx.lineWidth = 1;
+              ctx.setLineDash([3, 4]);
+              ctx.stroke();
+              ctx.setLineDash([]);
+
+              ctx.fillStyle = isNightMode ? 'rgba(239, 68, 68, 0.7)' : 'rgba(148, 163, 184, 0.85)';
+              ctx.font = '8.5px monospace';
+              ctx.fillText(`${ringM}m`, boatPt.x + radius + 2, boatPt.y - 2);
+            }
+          });
+        } else if (zoom > 15) {
+          // Open Sea / Coastal Navigation: Nautical Miles
+          const ringDistances = zoom > 200 ? [0.25, 0.5, 1] : [1, 2, 5];
+          ringDistances.forEach((ringNm) => {
+            const radius = nmPixels * ringNm;
+            if (radius > 12 && radius < Math.max(width, height) * 1.8) {
+              ctx.beginPath();
+              ctx.arc(boatPt.x, boatPt.y, radius, 0, Math.PI * 2);
+              ctx.strokeStyle = isNightMode ? 'rgba(239, 68, 68, 0.25)' : 'rgba(56, 189, 248, 0.28)';
+              ctx.lineWidth = 1;
+              ctx.setLineDash([3, 4]);
+              ctx.stroke();
+              ctx.setLineDash([]);
+
+              ctx.fillStyle = isNightMode ? 'rgba(239, 68, 68, 0.6)' : 'rgba(148, 163, 184, 0.8)';
+              ctx.font = '8.5px monospace';
+              ctx.fillText(`${ringNm}NM`, boatPt.x + radius + 2, boatPt.y - 2);
+            }
+          });
+        }
       }
 
       // Heading Vector Line
@@ -1875,8 +1916,8 @@ function drawSmoothPolygon(
     const cursorY = e.clientY - rect.top;
 
     const geoBefore = canvasToGeo(cursorX, cursorY, rect.width, rect.height);
-    const zoomFactor = e.deltaY < 0 ? 1.25 : 0.8;
-    const newZoom = Math.max(0.5, Math.min(40000, zoomRef.current * zoomFactor));
+    const zoomFactor = e.deltaY < 0 ? 1.35 : 0.74;
+    const newZoom = Math.max(0.4, Math.min(2500000, zoomRef.current * zoomFactor));
 
     const worldPixels = newZoom * 3600;
     const targetPx = lonToMercatorX(geoBefore.lon) * worldPixels;
@@ -1937,7 +1978,7 @@ function drawSmoothPolygon(
         );
         if (touchDistanceRef.current > 0) {
           const factor = newDist / touchDistanceRef.current;
-          const newZoom = Math.max(0.5, Math.min(40000, zoomRef.current * factor));
+          const newZoom = Math.max(0.4, Math.min(2500000, zoomRef.current * factor));
           zoomRef.current = newZoom;
         }
         touchDistanceRef.current = newDist;
@@ -1975,7 +2016,7 @@ function drawSmoothPolygon(
         setZoom(zoomRef.current);
       }
 
-      // Check if this was a fast tap (under 300ms, moved < 8px)
+      // Check if this was a fast tap (under 350ms, moved < 15px)
       if (e.touches.length === 0) {
         const timeDiff = Date.now() - touchStartTimeRef.current;
         const lastPos = dragStartRef.current;
@@ -2003,15 +2044,40 @@ function drawSmoothPolygon(
               lastTapRef.current = { time: now, x: clickX, y: clickY };
             }
           } else {
-            lastTapRef.current = null;
+            let handledWaypoint = false;
             if (activeRoute && onSelectWaypoint) {
               for (const wp of activeRoute.waypoints) {
                 const wpPt = geoToCanvas(wp.longitude, wp.latitude, rect.width, rect.height);
                 const d = Math.hypot(clickX - wpPt.x, clickY - wpPt.y);
                 if (d <= 25) {
                   onSelectWaypoint(wp);
+                  handledWaypoint = true;
                   break;
                 }
+              }
+            }
+
+            if (!handledWaypoint) {
+              if (isDoubleTap) {
+                // Mobile double-tap zoom smoothly towards tapped point
+                const geoBefore = canvasToGeo(clickX, clickY, rect.width, rect.height);
+                const newZoom = Math.min(2500000, zoomRef.current * 2.0);
+                const worldPixels = newZoom * 3600;
+                const targetPx = lonToMercatorX(geoBefore.lon) * worldPixels;
+                const targetPy = latToMercatorY(geoBefore.lat) * worldPixels;
+                const newCx = targetPx - (clickX - rect.width / 2);
+                const newCy = targetPy - (clickY - rect.height / 2);
+                const newCenterLon = mercatorXToLon(newCx / worldPixels);
+                const newCenterLat = mercatorYToLat(newCy / worldPixels);
+
+                zoomRef.current = newZoom;
+                centerRef.current = [newCenterLon, Math.max(-80, Math.min(80, newCenterLat))];
+                setZoom(newZoom);
+                setCenter(centerRef.current);
+                setAutoFollowVessel(false);
+                lastTapRef.current = null;
+              } else {
+                lastTapRef.current = { time: now, x: clickX, y: clickY };
               }
             }
           }
@@ -2067,7 +2133,7 @@ function drawSmoothPolygon(
     }
   };
 
-  // Canvas Double Click (Explicitly required for adding waypoints to destination)
+  // Canvas Double Click (Adds waypoint if in mode, or zooms directly to cursor if exploring)
   const handleCanvasDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -2078,6 +2144,23 @@ function drawSmoothPolygon(
     if (isAddWaypointMode && onMapClickAddWaypoint) {
       const { lat, lon } = canvasToGeo(x, y, rect.width, rect.height);
       onMapClickAddWaypoint(lat, lon);
+    } else if (!isAddWaypointMode) {
+      // Fluid double-click zoom directly towards the clicked point
+      const geoBefore = canvasToGeo(x, y, rect.width, rect.height);
+      const newZoom = Math.min(2500000, zoomRef.current * 2.0);
+      const worldPixels = newZoom * 3600;
+      const targetPx = lonToMercatorX(geoBefore.lon) * worldPixels;
+      const targetPy = latToMercatorY(geoBefore.lat) * worldPixels;
+      const newCx = targetPx - (x - rect.width / 2);
+      const newCy = targetPy - (y - rect.height / 2);
+      const newCenterLon = mercatorXToLon(newCx / worldPixels);
+      const newCenterLat = mercatorYToLat(newCy / worldPixels);
+
+      zoomRef.current = newZoom;
+      centerRef.current = [newCenterLon, Math.max(-80, Math.min(80, newCenterLat))];
+      setZoom(newZoom);
+      setCenter(centerRef.current);
+      setAutoFollowVessel(false);
     }
   };
 
@@ -2687,13 +2770,13 @@ function drawSmoothPolygon(
         {/* Zoom In Button */}
         <button
           type="button"
-          onClick={() => setZoom((prev) => Math.min(40000, prev * 1.35))}
+          onClick={() => setZoom((prev) => Math.min(2500000, prev * 1.5))}
           className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl border backdrop-blur-md transition-all shadow-lg flex items-center justify-center ${
             isNightMode 
               ? 'bg-red-950/90 border-red-800 text-red-200 hover:bg-red-900' 
               : 'bg-slate-900/90 border-slate-700 text-slate-200 hover:bg-slate-800 hover:text-cyan-400'
           }`}
-          title="Zoom In (Close-up detail)"
+          title="Zoom In (Close-up detail - Max 2,500,000x)"
         >
           <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </button>
@@ -2701,7 +2784,7 @@ function drawSmoothPolygon(
         {/* Zoom Out Button */}
         <button
           type="button"
-          onClick={() => setZoom((prev) => Math.max(0.5, prev * 0.74))}
+          onClick={() => setZoom((prev) => Math.max(0.4, prev * 0.67))}
           className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl border backdrop-blur-md transition-all shadow-lg flex items-center justify-center ${
             isNightMode 
               ? 'bg-red-950/90 border-red-800 text-red-200 hover:bg-red-900' 
@@ -2835,6 +2918,56 @@ function drawSmoothPolygon(
               >
                 <div className="font-bold text-white text-[10px]">⛵ Vessel Fix</div>
                 <div className="text-[8px] text-slate-400">Center on GPS</div>
+              </button>
+            </div>
+          </div>
+
+          {/* Tactical Marine Zoom Presets */}
+          <div className="pb-2 border-b border-slate-800 flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                <Search className="w-3 h-3 text-emerald-400" />
+                <span>Tactical Marine Zoom</span>
+              </span>
+              <span className="text-[9px] font-mono text-emerald-300">
+                {zoom >= 1000 ? `${(zoom / 1000).toFixed(0)}k×` : `${zoom.toFixed(0)}×`}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5 mt-0.5">
+              <button
+                type="button"
+                onClick={() => setZoom(350)}
+                className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-950/80 border border-slate-700 hover:border-emerald-500/60 text-left transition-all"
+              >
+                <div className="font-bold text-white text-[10px]">⚓ Approach</div>
+                <div className="text-[8px] text-slate-400">Coastal Entry (350×)</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setZoom(3500)}
+                className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-950/80 border border-slate-700 hover:border-emerald-500/60 text-left transition-all"
+              >
+                <div className="font-bold text-white text-[10px]">🚤 Port & Marina</div>
+                <div className="text-[8px] text-slate-400">Harbor Basin (3.5k×)</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setZoom(50000)}
+                className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-950/80 border border-slate-700 hover:border-emerald-500/60 text-left transition-all"
+              >
+                <div className="font-bold text-white text-[10px]">🔍 Pier & Berth</div>
+                <div className="text-[8px] text-slate-400">Docking Slip (50k×)</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setZoom(400000)}
+                className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-950/80 border border-slate-700 hover:border-emerald-500/60 text-left transition-all"
+              >
+                <div className="font-bold text-white text-[10px]">🔬 Ultra Detail</div>
+                <div className="text-[8px] text-slate-400">Deep Macro (400k×)</div>
               </button>
             </div>
           </div>

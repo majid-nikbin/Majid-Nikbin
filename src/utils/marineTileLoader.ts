@@ -33,49 +33,49 @@ export const LIVE_TILE_PROVIDERS: TileProviderOption[] = [
     name: 'Google Marine Hybrid',
     badge: '🛰️ Recommended',
     description: 'High-resolution satellite with coastal labels, ports, and sea borders',
-    maxZoom: 20
+    maxZoom: 22
   },
   {
     id: 'google_satellite',
     name: 'Google World Satellite',
     badge: '🌍 Satellite',
     description: 'Crystal-clear satellite imagery of coastlines, shallow reefs, and seabed',
-    maxZoom: 20
+    maxZoom: 22
   },
   {
     id: 'google_nautical',
     name: 'Google Standard Nautical/Road',
     badge: '⚡ Fast Vector',
     description: 'Clear raster roadmap with highlighted ports, marinas, and coastal land details',
-    maxZoom: 19
+    maxZoom: 21
   },
   {
     id: 'osm_mirror_de',
     name: 'OpenStreetMap Fast Mirror',
     badge: '⚡ Fast CDN',
     description: 'Unfiltered high-speed European mirror of OpenStreetMap nautical standard',
-    maxZoom: 19
+    maxZoom: 20
   },
   {
     id: 'esri_ocean',
     name: 'ESRI Ocean & Bathymetry',
     badge: '🌊 Depth & Seabed',
     description: 'Specialized marine bathymetry, depth contours, coastal seabed topography',
-    maxZoom: 16
+    maxZoom: 18
   },
   {
     id: 'esri_satellite',
     name: 'ESRI World Imagery',
     badge: '🛰️ Global Sat',
     description: 'Alternative high-resolution satellite imagery',
-    maxZoom: 18
+    maxZoom: 21
   },
   {
     id: 'custom',
     name: 'Custom Tile Server URL',
     badge: '⚙️ Custom XYZ',
     description: 'Enter your own tile server URL template ({z}/{x}/{y}.png)',
-    maxZoom: 22
+    maxZoom: 24
   }
 ];
 
