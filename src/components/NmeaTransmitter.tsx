@@ -29,6 +29,7 @@ import {
   getOtgLicenseStatus, 
   dismissOtgWarning, 
   activateOtgLicense, 
+  activateViaMyket,
   MYKET_DETAILS_INTENT, 
   MYKET_WEB_URL,
   OFFICIAL_SUPPORT_EMAIL 
@@ -61,7 +62,6 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
   const [otgKeyInput, setOtgKeyInput] = useState<string>('');
   const [otgKeyError, setOtgKeyError] = useState<string | null>(null);
   const [otgKeySuccess, setOtgKeySuccess] = useState<boolean>(false);
-  const [copiedDevId, setCopiedDevId] = useState<boolean>(false);
 
   const [backgroundMode, setBackgroundMode] = useState<boolean>(() => {
     try {
@@ -71,9 +71,18 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
     }
   });
 
-  // Refresh OTG license status on mount or tab focus
+  // Refresh OTG license status on mount, tab focus, or activation event
   useEffect(() => {
-    setOtgLicense(getOtgLicenseStatus());
+    const handleUpdate = () => {
+      setOtgLicense(getOtgLicenseStatus());
+    };
+    handleUpdate();
+    window.addEventListener('mariner_license_activated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+    return () => {
+      window.removeEventListener('mariner_license_activated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
   }, []);
 
   const handleDismissWarning = () => {
@@ -96,14 +105,25 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
     }
   };
 
+  const handleConfirmMyketPurchase = () => {
+    activateViaMyket();
+    setOtgKeySuccess(true);
+    setOtgLicense(getOtgLicenseStatus());
+    setTimeout(() => {
+      setShowMyketModal(false);
+      setOtgKeySuccess(false);
+    }, 1500);
+  };
+
   const handleActivateOtgKey = (e: React.FormEvent) => {
     e.preventDefault();
     setOtgKeyError(null);
-    if (!otgKeyInput.trim()) {
-      setOtgKeyError('Please enter activation key');
+    const key = otgKeyInput.trim();
+    if (!key) {
+      setOtgKeyError('لطفاً کد فعال‌سازی یا PIN دولوپر را وارد کنید');
       return;
     }
-    const success = activateOtgLicense(otgKeyInput.trim());
+    const success = activateOtgLicense(key);
     if (success) {
       setOtgKeySuccess(true);
       setOtgLicense(getOtgLicenseStatus());
@@ -113,16 +133,8 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
         setOtgKeyInput('');
       }, 1500);
     } else {
-      setOtgKeyError('Invalid key for this device. Please purchase from Myket or contact support.');
+      setOtgKeyError('کد یا PIN وارد شده نامعتبر است. لطفاً از مایکت خرید کنید یا با پشتیبانی تماس بگیرید.');
     }
-  };
-
-  const handleCopyDevId = async () => {
-    try {
-      await navigator.clipboard.writeText(otgLicense.deviceId);
-      setCopiedDevId(true);
-      setTimeout(() => setCopiedDevId(false), 2000);
-    } catch {}
   };
 
   // Background fallback URL for WebUSB/WebSerial hardware driver runtime (never exposed in UI or source strings)
@@ -623,41 +635,41 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
             <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 flex flex-col gap-2.5">
               <div className="flex items-center gap-2 text-rose-400 text-xs font-bold">
                 <Lock className="w-4 h-4 shrink-0" />
-                <span>مهلت ۶ ماهه آزمایشی پورت OTG به پایان رسیده است</span>
+                <span>مهلت استفاده آزمایشی از پورت OTG به پایان رسیده است</span>
               </div>
               <p className="text-xs text-slate-300 leading-relaxed font-sans text-right" dir="rtl">
                 امکان اتصال فیزیکی به کابل OTG و ارسال داده‌های NMEA به دستگاه‌های ناوبری جانبی نیاز به فعال‌سازی از مایکت دارد.
                 بخش‌های نقشه، موقعیت‌یابی ماهواره‌ای، روت‌بندی و قطب‌نما همچنان برای شما به‌صورت ۱۰۰٪ رایگان فعال باقی می‌مانند.
               </p>
-              <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] font-mono text-slate-400">
-                <span>دستگاه: <strong className="text-cyan-300 font-mono">{otgLicense.deviceId}</strong></span>
-                <button
-                  type="button"
-                  onClick={handleCopyDevId}
-                  className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1 font-sans"
-                >
-                  {copiedDevId ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                  <span>{copiedDevId ? 'کپی شد' : 'کپی شناسه'}</span>
-                </button>
-              </div>
             </div>
 
             {/* Direct Myket Purchase Button */}
-            <button
-              type="button"
-              onClick={handleOpenMyket}
-              className="w-full py-3 px-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-amber-950/50 transition-all active:scale-98 cursor-pointer"
-            >
-              <ShoppingCart className="w-4 h-4" />
-              <span>خرید و تمدید لایسنس از مایکت (Myket)</span>
-              <ExternalLink className="w-3.5 h-3.5 opacity-80" />
-            </button>
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={handleOpenMyket}
+                className="w-full py-3 px-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-amber-950/50 transition-all active:scale-98 cursor-pointer"
+              >
+                <ShoppingCart className="w-4 h-4" />
+                <span>خرید و تمدید لایسنس از مایکت (Myket)</span>
+                <ExternalLink className="w-3.5 h-3.5 opacity-80" />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmMyketPurchase}
+                className="w-full py-2 px-3 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/60 text-emerald-300 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+              >
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                <span>خرید را در مایکت انجام دادم (ثبت و فعال‌سازی دائمی)</span>
+              </button>
+            </div>
 
             {/* Offline Key Entry Form (for manual keys or developer bypass) */}
             <form onSubmit={handleActivateOtgKey} className="pt-3 border-t border-slate-800 flex flex-col gap-2">
               <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
                 <KeyRound className="w-3 h-3 text-cyan-400" />
-                <span>کد فعال‌سازی اختصاصی دارید؟</span>
+                <span>کد فعال‌سازی دارید؟</span>
               </span>
               <div className="flex gap-2">
                 <input
@@ -667,12 +679,12 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
                     setOtgKeyInput(e.target.value);
                     setOtgKeyError(null);
                   }}
-                  placeholder="ACT-XXXX-XXXX-XXXX"
-                  className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono uppercase tracking-wider outline-none focus:border-cyan-400"
+                  placeholder="کد فعال‌سازی را وارد نمایید"
+                  className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono outline-none focus:border-cyan-400"
                 />
                 <button
                   type="submit"
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 font-bold text-xs rounded-lg border border-slate-700 transition-colors shrink-0"
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 font-bold text-xs rounded-lg border border-slate-700 transition-colors shrink-0 cursor-pointer"
                 >
                   فعال‌سازی
                 </button>

@@ -6,7 +6,6 @@ import {
   Sun, 
   Radio, 
   Activity, 
-  Cpu, 
   Smartphone,
   Navigation,
   WifiOff,
@@ -17,28 +16,25 @@ import {
   X,
   KeyRound,
   Lock,
-  Sparkles,
+  Unlock,
   Eye,
   EyeOff,
-  Download,
   Route as RouteIcon,
-  Copy,
-  Check,
-  Send,
-  Share2
+  Check
 } from 'lucide-react';
 import { SerialPortStatus } from '../types';
 import { 
   getLicenseStatus, 
   getOtgLicenseStatus,
+  activateOtgLicense,
   OFFICIAL_SUPPORT_EMAIL,
   isDeveloperModeUnlocked,
   setDeveloperMode,
   DEVELOPER_PASSCODE
 } from '../services/licenseService';
-import { APP_VERSION, APP_BUILD, APP_RELEASE_NAME } from '../config/version';
+import { APP_VERSION, APP_BUILD } from '../config/version';
 
-export type ActiveTab = 'nav' | 'route' | 'transmit' | 'monitor' | 'drivers' | 'keygen';
+export type ActiveTab = 'nav' | 'route' | 'transmit' | 'monitor' | 'drivers';
 
 interface HeaderProps {
   activeTab: ActiveTab;
@@ -75,45 +71,28 @@ export const Header: React.FC<HeaderProps> = ({
   const showAboutModal = externalShowAboutModal !== undefined ? externalShowAboutModal : localShowAboutModal;
   const setShowAboutModal = externalSetShowAboutModal || setLocalShowAboutModal;
 
-  const [devClickCount, setDevClickCount] = useState<number>(0);
   const [showDevPinPrompt, setShowDevPinPrompt] = useState<boolean>(false);
+  const [devClickCount, setDevClickCount] = useState<number>(0);
   const [devPinInput, setDevPinInput] = useState<string>('');
   const [devPinError, setDevPinError] = useState<string | null>(null);
   const [isDevUnlocked, setIsDevUnlocked] = useState<boolean>(() => isDeveloperModeUnlocked());
-  const [copiedDeviceId, setCopiedDeviceId] = useState<boolean>(false);
+  const [otgLicense, setOtgLicense] = useState(() => getOtgLicenseStatus());
 
-  const handleCopyHeaderDeviceId = async () => {
-    const devId = getLicenseStatus().deviceId;
-    let ok = false;
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(devId);
-        ok = true;
-      }
-    } catch {}
-    if (!ok) {
-      try {
-        const el = document.createElement('textarea');
-        el.value = devId;
-        document.body.appendChild(el);
-        el.select();
-        ok = document.execCommand('copy');
-        document.body.removeChild(el);
-      } catch {}
-    }
-    if (ok) {
-      setCopiedDeviceId(true);
-      setTimeout(() => setCopiedDeviceId(false), 2500);
-    }
-  };
+  const isActivated = otgLicense.isActivated || isDevUnlocked;
 
-  const handleEmailHeaderDeviceId = () => {
-    const devId = getLicenseStatus().deviceId;
-    handleCopyHeaderDeviceId();
-    const subject = encodeURIComponent(`Mariner Pro-Link Activation Request [${devId}]`);
-    const body = encodeURIComponent(`Hello,\n\nPlease provide the activation key for my Mariner Pro-Link installation.\nDevice ID: ${devId}\nSupport: ${OFFICIAL_SUPPORT_EMAIL}`);
-    window.location.href = `mailto:${OFFICIAL_SUPPORT_EMAIL}?subject=${subject}&body=${body}`;
-  };
+  // Listen for real-time license activation across components
+  useEffect(() => {
+    const handleLicenseUpdate = () => {
+      setOtgLicense(getOtgLicenseStatus());
+      setIsDevUnlocked(isDeveloperModeUnlocked());
+    };
+    window.addEventListener('mariner_license_activated', handleLicenseUpdate);
+    window.addEventListener('storage', handleLicenseUpdate);
+    return () => {
+      window.removeEventListener('mariner_license_activated', handleLicenseUpdate);
+      window.removeEventListener('storage', handleLicenseUpdate);
+    };
+  }, []);
 
   // Listen for online / offline events
   useEffect(() => {
@@ -184,12 +163,20 @@ export const Header: React.FC<HeaderProps> = ({
     setTimeout(() => setWakeLockToast(null), 3000);
   };
 
-  // Toggle Key Gen: Click once to open, click again to close & return to nav
-  const handleToggleKeyGen = () => {
-    if (activeTab === 'keygen') {
-      onTabChange('nav');
+  const handleDevPinSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = devPinInput.trim();
+    if (!clean) return;
+    if (clean === DEVELOPER_PASSCODE || clean === '2450') {
+      setDeveloperMode(true);
+      activateOtgLicense(DEVELOPER_PASSCODE);
+      setIsDevUnlocked(true);
+      setShowDevPinPrompt(false);
+      setDevPinInput('');
+      setDevPinError(null);
+      showToastMessage('✓ Developer Mode Active');
     } else {
-      onTabChange('keygen');
+      setDevPinError('رمز عبور نامعتبر است');
     }
   };
 
@@ -227,7 +214,15 @@ export const Header: React.FC<HeaderProps> = ({
                   v{APP_VERSION}
                 </span>
               </div>
-              <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
+              {isActivated && (
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="px-1.5 py-0.2 rounded bg-emerald-950/90 border border-emerald-500/80 text-[8px] sm:text-[9px] font-mono text-emerald-400 font-black tracking-widest uppercase inline-flex items-center gap-1 shadow-[0_0_8px_rgba(16,185,129,0.35)]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    ACTIVATED
+                  </span>
+                </div>
+              )}
+              <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono mt-0.5">
                 <span className="flex items-center gap-1">
                   <span
                     className={`w-2 h-2 rounded-full ${
@@ -283,7 +278,7 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Center: Navigation Tabs (Responsive grid on mobile so all tabs fit seamlessly) */}
+        {/* Center: Navigation Tabs */}
         <nav className="grid grid-cols-4 md:flex items-center gap-1 sm:gap-1.5 bg-slate-900/90 p-1 rounded-xl border border-slate-800 w-full md:w-auto">
           <button
             id="tab-btn-nav"
@@ -426,7 +421,7 @@ export const Header: React.FC<HeaderProps> = ({
                     Mariner Pro-Link
                   </h3>
                   <span className="text-xs font-mono font-bold text-cyan-400">
-                    version: V1.0 Release
+                    version: v{APP_VERSION} Release
                   </span>
                 </div>
               </div>
@@ -452,16 +447,58 @@ export const Header: React.FC<HeaderProps> = ({
                     const next = devClickCount + 1;
                     setDevClickCount(next);
                     if (next >= 5) {
-                      setShowDevPinPrompt(true);
+                      setShowDevPinPrompt((prev) => !prev);
                       setDevClickCount(0);
                     }
                   }}
-                  className="text-sm font-bold text-white font-mono hover:text-cyan-300 transition-colors cursor-pointer"
-                  title="Mariner Engineering"
+                  className="text-sm font-bold text-white font-mono hover:text-cyan-300 transition-colors cursor-pointer select-none"
+                  title="Developer"
                 >
-                  M.Nikbin
+                  M-Tech
                 </button>
               </div>
+
+              {/* Developer PIN Prompt - Only triggered after 5 taps on Developer name */}
+              {showDevPinPrompt && (
+                <form
+                  onSubmit={handleDevPinSubmit}
+                  className="p-3 bg-slate-900 border border-slate-700 rounded-xl flex flex-col gap-2 animate-fadeIn"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-mono font-bold text-slate-300 flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Developer PIN:</span>
+                    </span>
+                    {isDevUnlocked && (
+                      <span className="text-[10px] text-emerald-400 font-mono font-bold">
+                        UNLOCKED
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      value={devPinInput}
+                      onChange={(e) => {
+                        setDevPinInput(e.target.value);
+                        setDevPinError(null);
+                      }}
+                      placeholder="••••"
+                      autoFocus
+                      className="flex-1 bg-slate-950 border border-slate-700 focus:border-cyan-500 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white outline-none"
+                    />
+                    <button
+                      type="submit"
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-400 text-xs font-bold font-mono rounded-lg border border-slate-700 transition-colors cursor-pointer"
+                    >
+                      Submit
+                    </button>
+                  </div>
+                  {devPinError && (
+                    <span className="text-[11px] text-rose-400 font-mono">{devPinError}</span>
+                  )}
+                </form>
+              )}
 
               <div className="flex items-center justify-between border-t border-slate-800/80 pt-2.5">
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
@@ -493,43 +530,19 @@ export const Header: React.FC<HeaderProps> = ({
                 </span>
               </div>
 
-              <div className="flex flex-col gap-1.5 border-t border-slate-800/80 pt-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                    Device ID
-                  </span>
-                  <span className="text-xs text-cyan-300 font-mono font-bold select-all">
-                    {getLicenseStatus().deviceId}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5 justify-end">
-                  <button
-                    type="button"
-                    onClick={handleCopyHeaderDeviceId}
-                    className="px-2 py-1 bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-500/40 rounded text-[10px] font-mono font-bold text-cyan-300 flex items-center gap-1 transition-all"
-                  >
-                    {copiedDeviceId ? (
-                      <>
-                        <Check className="w-3 h-3 text-emerald-400" />
-                        <span className="text-emerald-300">Copied</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3 h-3" />
-                        <span>Copy ID</span>
-                      </>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleEmailHeaderDeviceId}
-                    className="px-2 py-1 bg-slate-800 hover:bg-slate-750 border border-slate-700 rounded text-[10px] font-mono text-slate-300 flex items-center gap-1 transition-all"
-                    title="Copy and send email to developer"
-                  >
-                    <Mail className="w-3 h-3 text-cyan-400" />
-                    <span>Email Support</span>
-                  </button>
-                </div>
+              {/* Feedback via Email */}
+              <div className="flex items-center justify-between border-t border-slate-800/80 pt-2.5">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  Feedback
+                </span>
+                <a
+                  href={`mailto:${OFFICIAL_SUPPORT_EMAIL}?subject=Mariner%20Pro-Link%20Feedback%20%26%20Suggestions&body=Hi%20Mariner%20Team%2C%0A%0AHere%20is%20my%20feedback%20regarding%20the%20app%3A%0A`}
+                  className="px-3 py-1.5 bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-500/50 rounded-lg text-xs font-mono font-bold text-cyan-300 flex items-center gap-1.5 transition-all shadow-sm"
+                  title="Feedback"
+                >
+                  <Mail className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Feedback</span>
+                </a>
               </div>
 
               <div className="flex items-center justify-between border-t border-slate-800/80 pt-2.5">
@@ -543,129 +556,27 @@ export const Header: React.FC<HeaderProps> = ({
 
               <div className="flex items-center justify-between border-t border-slate-800/80 pt-2.5">
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                  USB OTG License
+                  License Status
                 </span>
-                {(() => {
-                  const otgLic = getOtgLicenseStatus();
-                  if (otgLic.isActivated) {
-                    return (
-                      <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-500/40 px-2 py-0.5 rounded">
-                        ✓ Activated & Permanent
-                      </span>
-                    );
-                  }
-                  if (otgLic.isExpired) {
-                    return (
-                      <span className="text-xs font-mono font-bold text-rose-400 bg-rose-950/60 border border-rose-500/40 px-2 py-0.5 rounded">
-                        Expired (Available on Myket)
-                      </span>
-                    );
-                  }
-                  if (otgLic.isWarningPeriod) {
-                    return (
-                      <span className="text-xs font-mono font-bold text-amber-300 bg-amber-950/60 border border-amber-500/40 px-2 py-0.5 rounded">
-                        Expires in {otgLic.daysRemaining}d (Buy Myket)
-                      </span>
-                    );
-                  }
-                  return (
-                    <span className="text-xs font-mono font-bold text-cyan-300 bg-cyan-950/60 border border-cyan-500/40 px-2 py-0.5 rounded">
-                      6-Mo Free Trial ({otgLic.daysRemaining}d left)
-                    </span>
-                  );
-                })()}
+                {isActivated ? (
+                  <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-500/40 px-2 py-0.5 rounded flex items-center gap-1 shadow-[0_0_8px_rgba(16,185,129,0.3)]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    ACTIVATED
+                  </span>
+                ) : (
+                  <span className="text-xs font-mono font-bold text-slate-300 bg-slate-900 border border-slate-700 px-2 py-0.5 rounded">
+                    Official Release
+                  </span>
+                )}
               </div>
-
-              {/* Developer Key Tool Button inside About Modal - Only if dev mode unlocked */}
-              {isDevUnlocked && (
-                <div className="flex items-center justify-between border-t border-slate-800/80 pt-2.5">
-                  <div className="flex flex-col">
-                    <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                      Developer Key Tool
-                    </span>
-                    <span className="text-[10px] text-slate-500">
-                      Generate client activation keys
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowAboutModal(false);
-                      handleToggleKeyGen();
-                    }}
-                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-xs rounded-lg flex items-center gap-1.5 shadow-md transition-all"
-                  >
-                    <KeyRound className="w-3.5 h-3.5" />
-                    <span>{activeTab === 'keygen' ? 'Close Key Gen' : 'Open Key Gen'}</span>
-                  </button>
-                </div>
-              )}
-
-              {/* Hidden Developer Mode PIN Form */}
-              {showDevPinPrompt && (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (devPinInput.trim() === DEVELOPER_PASSCODE || devPinInput.trim() === '2450') {
-                      setDeveloperMode(true);
-                      setIsDevUnlocked(true);
-                      setShowDevPinPrompt(false);
-                      setDevPinInput('');
-                    } else {
-                      setDevPinError('Invalid PIN');
-                    }
-                  }}
-                  className="mt-2 p-3 bg-slate-900 border border-amber-500/40 rounded-xl flex flex-col gap-2"
-                >
-                  <span className="text-xs font-bold text-amber-300">Enter Developer PIN:</span>
-                  <input
-                    type="password"
-                    value={devPinInput}
-                    onChange={(e) => {
-                      setDevPinInput(e.target.value);
-                      setDevPinError(null);
-                    }}
-                    placeholder="PIN"
-                    className="w-full bg-slate-950 border border-amber-500/40 rounded px-2.5 py-1.5 text-xs text-white outline-none font-mono"
-                  />
-                  {devPinError && <span className="text-[10px] text-red-400">{devPinError}</span>}
-                  <div className="flex gap-2">
-                    <button
-                      type="submit"
-                      className="flex-1 py-1.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-xs rounded"
-                    >
-                      Unlock KeyGen
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowDevPinPrompt(false)}
-                      className="px-2 py-1.5 bg-slate-800 text-slate-400 text-xs rounded"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              )}
             </div>
 
-            {/* Contact Developer Button with mailto to official email */}
-            <div className="flex flex-col gap-2 pt-2 border-t border-slate-800">
-              <a
-                href={`mailto:${OFFICIAL_SUPPORT_EMAIL}?subject=Mariner%20Pro-Link%20V1.0%20Support%20%26%20Feedback`}
-                className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2.5 shadow-lg transition-all ${
-                  isNightMode
-                    ? 'bg-red-600 hover:bg-red-500 text-white shadow-red-950'
-                    : 'bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-cyan-950 font-black'
-                }`}
-              >
-                <Mail className="w-4 h-4" />
-                <span>Contact Developer ({OFFICIAL_SUPPORT_EMAIL})</span>
-              </a>
-
+            {/* Modal Actions */}
+            <div className="pt-2 border-t border-slate-800">
               <button
                 type="button"
                 onClick={() => setShowAboutModal(false)}
-                className="w-full py-2 px-3 rounded-lg text-xs font-bold text-slate-400 hover:text-white bg-slate-800/50 hover:bg-slate-800 transition-colors"
+                className="w-full py-2.5 px-3 rounded-lg text-xs font-bold text-slate-400 hover:text-white bg-slate-800/60 hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 Close
               </button>
@@ -676,3 +587,4 @@ export const Header: React.FC<HeaderProps> = ({
     </header>
   );
 };
+

@@ -18,7 +18,6 @@ import { RouteNavigationTab } from './components/RouteNavigationTab';
 import { NmeaTransmitter } from './components/NmeaTransmitter';
 import { NmeaMonitor } from './components/NmeaMonitor';
 import { UsbDriverGuide } from './components/UsbDriverGuide';
-import { KeyGenTab } from './components/KeyGenTab';
 import { formatMarineDDM, formatHeadingDeg } from './utils/geo';
 import { Navigation, ArrowRight } from 'lucide-react';
 
@@ -351,11 +350,6 @@ export default function App() {
         {/* Tab 4: USB OTG & Drivers Guide */}
         <div className={activeTab === 'drivers' ? 'flex flex-col gap-6 animate-fadeIn' : 'hidden'}>
           <UsbDriverGuide isNightMode={isNightMode} />
-        </div>
-
-        {/* Tab 5: Developer Key Generator */}
-        <div className={activeTab === 'keygen' ? 'flex flex-col gap-6 animate-fadeIn' : 'hidden'}>
-          <KeyGenTab isNightMode={isNightMode} />
         </div>
       </main>
 

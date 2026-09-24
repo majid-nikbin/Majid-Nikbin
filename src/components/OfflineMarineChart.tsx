@@ -2472,18 +2472,6 @@ function drawSmoothPolygon(
               <Download className="w-3 h-3" />
               <span>{isPreCaching ? 'Caching...' : <span className="inline">Cache</span>}</span>
             </button>
-
-            {/* Exit Full Screen Button */}
-            <button
-              id="btn-exit-fullscreen-hud"
-              type="button"
-              onClick={toggleFullscreen}
-              className="px-2 sm:px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[10px] sm:text-xs font-bold font-mono flex items-center gap-1 transition-all shadow-lg border border-red-400 active:scale-95 shrink-0"
-              title="Exit Full Screen"
-            >
-              <Minimize2 className="w-3 h-3" />
-              <span>EXIT</span>
-            </button>
           </div>
         </div>
       )}
@@ -2662,11 +2650,15 @@ function drawSmoothPolygon(
         </div>
       )}
 
-      {/* Floating Add Waypoint Guidance Banner */}
+      {/* Floating Add Waypoint Guidance Banner (Positioned safely at bottom-center away from top HUD & right buttons) */}
       {isAddWaypointMode && (
-        <div className="absolute top-12 sm:top-14 left-2.5 right-14 sm:right-16 z-20 pointer-events-auto">
-          <div className={`p-2 sm:p-2.5 rounded-xl border backdrop-blur-md shadow-2xl flex items-center justify-between gap-2 text-xs font-mono animate-fadeIn ${
-            isNightMode ? 'bg-red-950/95 border-amber-500/80 text-amber-200' : 'bg-slate-900/95 border-amber-400 text-slate-100'
+        <div className={`absolute ${
+          navigationSession.isNavigating 
+            ? 'bottom-16 sm:bottom-20' 
+            : 'bottom-4 sm:bottom-6'
+        } left-1/2 -translate-x-1/2 z-40 pointer-events-auto max-w-[calc(100vw-5rem)] sm:max-w-md w-max shadow-2xl animate-fadeIn`}>
+          <div className={`p-2 sm:p-2.5 rounded-xl border backdrop-blur-md shadow-2xl flex items-center justify-between gap-2.5 text-xs font-mono ${
+            isNightMode ? 'bg-red-950/95 border-amber-500/80 text-amber-200' : 'bg-slate-900/95 border-amber-400 text-slate-100 shadow-[0_0_20px_rgba(245,158,11,0.25)]'
           }`}>
             <div className="flex items-center gap-2 min-w-0">
               <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping shrink-0" />
@@ -2674,8 +2666,8 @@ function drawSmoothPolygon(
                 <span className="text-[11px] sm:text-xs font-bold text-amber-300 truncate">
                   📍 دبل‌کلیک روی نقشه برای ثبت نقطه ({waypointCount}/50)
                 </span>
-                <span className="text-[9px] sm:text-[10px] text-slate-400 truncate">
-                  Double-click destination on chart to draw course leg
+                <span className="text-[9px] sm:text-[10px] text-slate-400 truncate hidden xs:inline">
+                  Double-click on chart to place waypoint
                 </span>
               </div>
             </div>
@@ -2685,17 +2677,17 @@ function drawSmoothPolygon(
                 <button
                   type="button"
                   onClick={handleClearLastWaypoint}
-                  className="px-2 py-1 rounded-lg bg-rose-950/80 border border-rose-700 hover:bg-rose-900 text-rose-200 text-[10px] sm:text-xs font-bold flex items-center gap-1 transition-all"
+                  className="px-2 py-1 rounded-lg bg-rose-950/80 border border-rose-700 hover:bg-rose-900 text-rose-200 text-[10px] sm:text-xs font-bold flex items-center gap-1 transition-all active:scale-95"
                   title="Clear Last Waypoint (حذف از آخر به اول)"
                 >
                   <Undo2 className="w-3 h-3" />
-                  <span>Clear WP</span>
+                  <span>Undo</span>
                 </button>
               )}
               <button
                 type="button"
                 onClick={handleToggleAddWaypointMode}
-                className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white"
+                className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
                 title="Finish adding waypoints"
               >
                 <X className="w-3.5 h-3.5" />

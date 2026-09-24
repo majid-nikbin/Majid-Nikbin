@@ -20,6 +20,7 @@ import {
   DEVELOPER_PASSCODE,
   setDeveloperMode
 } from '../services/licenseService';
+import { APP_VERSION } from '../config/version';
 
 interface ActivationModalProps {
   onActivated: () => void;
@@ -208,7 +209,7 @@ export const ActivationModal: React.FC<ActivationModalProps> = ({
             onClick={handleSecretIconTap}
             className="px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-[11px] font-mono text-cyan-400 font-bold hover:bg-slate-700 cursor-pointer"
           >
-            V1.0
+            v{APP_VERSION}
           </button>
         </div>
 

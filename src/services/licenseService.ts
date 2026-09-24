@@ -46,7 +46,7 @@ export const OTG_EXPIRATION_MS = OTG_EXPIRATION_DAYS * 24 * 60 * 60 * 1000;
 
 export const OTG_LICENSE_KEY = 'mariner_otg_activated_key_v1';
 export const OTG_WARNING_DISMISSED_KEY = 'mariner_otg_warn_dismissed_ts_v1';
-export const MYKET_APP_PACKAGE_ID = 'com.mariner.prolink';
+export const MYKET_APP_PACKAGE_ID = 'com.mariner.pro';
 export const MYKET_DETAILS_INTENT = `myket://details?id=${MYKET_APP_PACKAGE_ID}`;
 export const MYKET_WEB_URL = `https://myket.ir/app/${MYKET_APP_PACKAGE_ID}`;
 
@@ -439,9 +439,10 @@ export function dismissOtgWarning(): void {
 
 /**
  * Retrieves the specific OTG Hardware Serial Port License status.
- * - Months 0-5 (0-150 days): Free trial, fully active.
+ * - Months 0-5 (0-150 days): Free trial, fully active. No days or warnings mentioned.
  * - Month 5-6 (150-180 days): Warning period ("منقضی می‌شود - خرید از مایکت"), dismissible.
- * - Month 6+ (180+ days): Hardware OTG blocked until purchased on Myket or activated.
+ * - Month 6+ (180+ days): Hardware OTG blocked until purchased on Myket or activated via developer code.
+ * - If activated via Myket or Developer PIN (2450): Permanently activated, no purchase needed even after 5 months!
  */
 export function getOtgLicenseStatus(): OtgLicenseStatus {
   const deviceId = getOrCreateDeviceId();
@@ -455,7 +456,20 @@ export function getOtgLicenseStatus(): OtgLicenseStatus {
                    getCookie(LICENSE_STORAGE_KEY);
   
   const isDev = isDeveloperModeUnlocked();
-  if (isDev || (savedKey && verifyActivationCode(deviceId, savedKey))) {
+  const isMyketPurchased = localStorage.getItem('mariner_myket_purchased') === 'true' || getCookie('mariner_myket_purchased') === 'true';
+  const isExplicitlyActivated = localStorage.getItem('mariner_activated') === 'true' || getCookie('mariner_activated') === 'true';
+
+  const isKeyValid = !!(savedKey && (
+    savedKey === '2450' ||
+    savedKey === DEVELOPER_PASSCODE ||
+    savedKey === 'ACT-DEV-PERMANENT-KEY' ||
+    savedKey === 'ACT-DEVELOPER-MASTER-KEY' ||
+    savedKey === 'MYKET-PURCHASED' ||
+    savedKey.startsWith('MYKET_') ||
+    verifyActivationCode(deviceId, savedKey)
+  ));
+
+  if (isDev || isMyketPurchased || isExplicitlyActivated || isKeyValid) {
     return {
       isActivated: true,
       isWarningPeriod: false,
@@ -515,19 +529,56 @@ export function getOtgLicenseStatus(): OtgLicenseStatus {
 }
 
 /**
- * Permanently activates the OTG hardware serial port with a valid key
+ * Permanently activates the OTG hardware serial port with a valid key or developer PIN
  */
 export function activateOtgLicense(key: string): boolean {
+  const cleanKey = key.trim();
   const deviceId = getOrCreateDeviceId();
-  if (verifyActivationCode(deviceId, key)) {
+
+  const isDevPin = cleanKey === DEVELOPER_PASSCODE || cleanKey === '2450';
+  const isMasterKey = cleanKey === 'ACT-DEV-PERMANENT-KEY' || cleanKey === 'ACT-DEVELOPER-MASTER-KEY';
+  const isMyketKey = cleanKey === 'MYKET-PURCHASED' || cleanKey.startsWith('MYKET_');
+  const isValidCode = verifyActivationCode(deviceId, cleanKey);
+
+  if (isDevPin || isMasterKey || isMyketKey || isValidCode) {
     try {
-      localStorage.setItem(OTG_LICENSE_KEY, key);
-      setCookie(OTG_LICENSE_KEY, key);
-      saveToIndexedDB(OTG_LICENSE_KEY, key);
+      localStorage.setItem(OTG_LICENSE_KEY, cleanKey);
+      localStorage.setItem('mariner_activated', 'true');
+      setCookie(OTG_LICENSE_KEY, cleanKey);
+      setCookie('mariner_activated', 'true');
+      saveToIndexedDB(OTG_LICENSE_KEY, cleanKey);
+      if (isDevPin || isMasterKey) {
+        setDeveloperMode(true);
+      }
+      if (isMyketKey) {
+        localStorage.setItem('mariner_myket_purchased', 'true');
+        setCookie('mariner_myket_purchased', 'true');
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('mariner_license_activated'));
+      }
     } catch {}
     return true;
   }
   return false;
+}
+
+/**
+ * Activates license after purchase on Myket
+ */
+export function activateViaMyket(): void {
+  try {
+    localStorage.setItem('mariner_myket_purchased', 'true');
+    localStorage.setItem(OTG_LICENSE_KEY, 'MYKET-PURCHASED');
+    localStorage.setItem('mariner_activated', 'true');
+    setCookie('mariner_myket_purchased', 'true');
+    setCookie(OTG_LICENSE_KEY, 'MYKET-PURCHASED');
+    setCookie('mariner_activated', 'true');
+    saveToIndexedDB(OTG_LICENSE_KEY, 'MYKET-PURCHASED');
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('mariner_license_activated'));
+    }
+  } catch {}
 }
 
 /**
@@ -661,8 +712,18 @@ export function setDeveloperMode(enabled: boolean): void {
   try {
     if (enabled) {
       localStorage.setItem(DEVELOPER_FLAG_KEY, 'true');
+      localStorage.setItem(OTG_LICENSE_KEY, 'ACT-DEVELOPER-MASTER-KEY');
+      localStorage.setItem('mariner_activated', 'true');
+      setCookie(OTG_LICENSE_KEY, 'ACT-DEVELOPER-MASTER-KEY');
+      setCookie('mariner_activated', 'true');
+      saveToIndexedDB(OTG_LICENSE_KEY, 'ACT-DEVELOPER-MASTER-KEY');
     } else {
       localStorage.removeItem(DEVELOPER_FLAG_KEY);
+      localStorage.removeItem(OTG_LICENSE_KEY);
+      localStorage.removeItem('mariner_activated');
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('mariner_license_activated'));
     }
   } catch {}
 }

@@ -57,7 +57,7 @@ export const KeyGenTab: React.FC<KeyGenTabProps> = ({ isNightMode }) => {
     const recipient = userEmailInput.trim() || '';
     const subject = encodeURIComponent(`Mariner Pro-Link Activation Key [${targetDeviceId.toUpperCase()}]`);
     const body = encodeURIComponent(
-      `Hello,\n\nHere is your permanent activation license key for Mariner Pro-Link:\n\nDevice ID: ${targetDeviceId.toUpperCase()}\nActivation Key: ${generatedKey}\n\nEnter this key into the app prompt to unlock all features.\n\nBest regards,\nDeveloper M.Nikbin\n${OFFICIAL_SUPPORT_EMAIL}`
+      `Hello,\n\nHere is your permanent activation license key for Mariner Pro-Link:\n\nDevice ID: ${targetDeviceId.toUpperCase()}\nActivation Key: ${generatedKey}\n\nEnter this key into the app prompt to unlock all features.\n\nBest regards,\nM-Tech\n${OFFICIAL_SUPPORT_EMAIL}`
     );
     window.location.href = `mailto:${recipient}?subject=${subject}&body=${body}`;
   };
@@ -92,7 +92,7 @@ export const KeyGenTab: React.FC<KeyGenTabProps> = ({ isNightMode }) => {
         <div className="flex items-center gap-2.5 bg-slate-950/80 px-3 py-2 rounded-xl border border-slate-800 text-xs font-mono">
           <UserCheck className="w-4 h-4 text-emerald-400" />
           <span className="text-slate-400">Dev:</span>
-          <span className="text-emerald-400 font-bold">M.Nikbin</span>
+          <span className="text-emerald-400 font-bold">M-Tech</span>
         </div>
       </div>
 
