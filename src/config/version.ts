@@ -15,3 +15,9 @@ export const APP_CHANGELOG_HIGHLIGHTS = [
   'Responsive Fullscreen Map with anti-overflow cache controls',
   'OTG Hardware Serial 5-Month Grace Warning & 6-Month Myket License Engine'
 ];
+
+/**
+ * Official GitHub Pages Web Mirror URL for WebUSB / WebSerial Hardware Driver
+ * If you rename your GitHub username or repository, simply change this single line.
+ */
+export const WEB_HARDWARE_MIRROR_URL = 'https://majid-nikbin.github.io/Majid-Nikbin/';

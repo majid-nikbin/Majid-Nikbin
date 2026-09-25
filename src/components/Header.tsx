@@ -20,7 +20,9 @@ import {
   Eye,
   EyeOff,
   Route as RouteIcon,
-  Check
+  Check,
+  ShoppingCart,
+  ExternalLink
 } from 'lucide-react';
 import { SerialPortStatus } from '../types';
 import { 
@@ -30,8 +32,11 @@ import {
   OFFICIAL_SUPPORT_EMAIL,
   isDeveloperModeUnlocked,
   setDeveloperMode,
-  DEVELOPER_PASSCODE
+  DEVELOPER_PASSCODE,
+  MYKET_DETAILS_INTENT,
+  MYKET_WEB_URL
 } from '../services/licenseService';
+import { Browser } from '@capacitor/browser';
 import { APP_VERSION, APP_BUILD } from '../config/version';
 
 export type ActiveTab = 'nav' | 'route' | 'transmit' | 'monitor' | 'drivers';
@@ -543,6 +548,29 @@ export const Header: React.FC<HeaderProps> = ({
                   <Mail className="w-3.5 h-3.5 text-cyan-400" />
                   <span>Feedback</span>
                 </a>
+              </div>
+
+              {/* Myket Link / Purchase */}
+              <div className="flex items-center justify-between border-t border-slate-800/80 pt-2.5">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  Myket Store
+                </span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await Browser.open({ url: MYKET_DETAILS_INTENT, windowName: '_system' });
+                    } catch {
+                      window.open(MYKET_WEB_URL, '_blank');
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 rounded-lg text-xs font-bold text-amber-300 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                  title="صفحه برنامه در مایکت"
+                >
+                  <ShoppingCart className="w-3.5 h-3.5 text-amber-400" />
+                  <span>مایکت (Myket)</span>
+                  <ExternalLink className="w-3 h-3 text-amber-400/80" />
+                </button>
               </div>
 
               <div className="flex items-center justify-between border-t border-slate-800/80 pt-2.5">

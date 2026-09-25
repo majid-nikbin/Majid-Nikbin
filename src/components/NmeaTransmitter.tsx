@@ -34,6 +34,7 @@ import {
   MYKET_WEB_URL,
   OFFICIAL_SUPPORT_EMAIL 
 } from '../services/licenseService';
+import { WEB_HARDWARE_MIRROR_URL } from '../config/version';
 
 interface NmeaTransmitterProps {
   gps: GpsData;
@@ -137,10 +138,8 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
     }
   };
 
-  // Background fallback URL for WebUSB/WebSerial hardware driver runtime (never exposed in UI or source strings)
-  const HARDWARE_SERIAL_FALLBACK_URL = typeof atob !== 'undefined'
-    ? atob('aHR0cHM6Ly9tYWppZC1uaWtiaW4uZ2l0aHViLmlvL01hamlkLU5pa2Jpbi8=')
-    : '';
+  // Background fallback URL for WebUSB/WebSerial hardware driver runtime
+  const HARDWARE_SERIAL_FALLBACK_URL = WEB_HARDWARE_MIRROR_URL;
 
   // Check if running inside installed Android APK (Capacitor)
   const isInsideApk = typeof window !== 'undefined' && (

@@ -734,7 +734,35 @@ export function setDeveloperMode(enabled: boolean): void {
 export function deactivateLicense(): void {
   try {
     localStorage.removeItem(LICENSE_STORAGE_KEY);
+    localStorage.removeItem(OTG_LICENSE_KEY);
+    localStorage.removeItem('mariner_activated');
+    localStorage.removeItem('mariner_myket_purchased');
+    localStorage.removeItem(DEVELOPER_FLAG_KEY);
+    localStorage.removeItem(OTG_WARNING_DISMISSED_KEY);
     setCookie(LICENSE_STORAGE_KEY, '');
+    setCookie(OTG_LICENSE_KEY, '');
+    setCookie('mariner_activated', '');
+    setCookie('mariner_myket_purchased', '');
     cachedLicenseStatus = null;
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('mariner_license_activated'));
+    }
+  } catch {}
+}
+
+/**
+ * Developer Testing Simulator: Simulates age of app in days to test 5-month warning and 6-month expiration
+ */
+export function simulateAppAgeDays(days: number): void {
+  try {
+    const simulatedInstallTs = Date.now() - (days * 24 * 60 * 60 * 1000);
+    localStorage.setItem(FIRST_INSTALL_KEY, simulatedInstallTs.toString());
+    localStorage.removeItem(LAST_SEEN_KEY);
+    localStorage.removeItem(OTG_WARNING_DISMISSED_KEY);
+    setCookie(COOKIE_TRIAL_KEY, simulatedInstallTs.toString());
+    saveToIndexedDB(FIRST_INSTALL_KEY, simulatedInstallTs.toString());
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('mariner_license_activated'));
+    }
   } catch {}
 }
