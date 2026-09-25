@@ -68,7 +68,7 @@ if (selectedIcon) {
   console.warn('==> Warning: No custom icon file found, keeping default.');
 }
 
-// 2. Android Manifest Permissions
+// 2. Android Manifest Permissions & Myket Package Queries
 const manifestPath = path.join(appDir, 'src', 'main', 'AndroidManifest.xml');
 if (fs.existsSync(manifestPath)) {
   let manifest = fs.readFileSync(manifestPath, 'utf8');
@@ -78,11 +78,31 @@ if (fs.existsSync(manifestPath)) {
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="ir.mservices.market.BILLING" />
+
+    <queries>
+        <package android:name="ir.mservices.market" />
+        <package android:name="com.android.chrome" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="myket" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="http" />
+        </intent>
+    </queries>
 `;
-  if (!manifest.includes('ACCESS_FINE_LOCATION')) {
+  if (!manifest.includes('ACCESS_FINE_LOCATION') || !manifest.includes('ir.mservices.market')) {
     manifest = manifest.replace('</manifest>', `${permissions}</manifest>`);
     fs.writeFileSync(manifestPath, manifest, 'utf8');
-    console.log('==> AndroidManifest.xml permissions injected.');
+    console.log('==> AndroidManifest.xml permissions & Myket queries injected.');
   }
 }
 

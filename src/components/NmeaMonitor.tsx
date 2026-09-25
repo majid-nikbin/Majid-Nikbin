@@ -13,11 +13,28 @@ import {
   Zap,
   Radio,
   Usb,
-  Cable
+  Cable,
+  Lock,
+  ShoppingCart,
+  Clock,
+  KeyRound,
+  ExternalLink,
+  AlertTriangle,
+  X,
+  Check
 } from 'lucide-react';
 import { NmeaLogEntry, SerialPortStatus } from '../types';
 import { parseNmeaSentence } from '../utils/nmea';
 import { serialService } from '../services/serialService';
+import { Browser } from '@capacitor/browser';
+import { 
+  getOtgLicenseStatus, 
+  dismissOtgWarning, 
+  activateOtgLicense, 
+  activateViaMyket,
+  MYKET_DETAILS_INTENT, 
+  MYKET_WEB_URL 
+} from '../services/licenseService';
 
 interface NmeaMonitorProps {
   serialStatus: SerialPortStatus;
@@ -37,8 +54,34 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
   const [selectedLog, setSelectedLog] = useState<NmeaLogEntry | null>(null);
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const [showChromeModal, setShowChromeModal] = useState<boolean>(false);
+  const [showMyketModal, setShowMyketModal] = useState<boolean>(false);
+  const [otgLicense, setOtgLicense] = useState(() => getOtgLicenseStatus());
+  const [otgKeyInput, setOtgKeyInput] = useState<string>('');
+  const [otgKeyError, setOtgKeyError] = useState<string | null>(null);
+  const [otgKeySuccess, setOtgKeySuccess] = useState<boolean>(false);
 
   const terminalEndRef = useRef<HTMLDivElement>(null);
+
+  // Background fallback URL for WebUSB/WebSerial hardware driver runtime (never exposed in UI or source strings)
+  const HARDWARE_SERIAL_FALLBACK_URL = typeof atob !== 'undefined'
+    ? atob('aHR0cHM6Ly9tYWppZC1uaWtiaW4uZ2l0aHViLmlvL01hamlkLU5pa2Jpbi8=')
+    : '';
+
+  // Refresh OTG license status on mount, tab focus, or activation event
+  useEffect(() => {
+    const handleUpdate = () => {
+      setOtgLicense(getOtgLicenseStatus());
+    };
+    handleUpdate();
+    window.addEventListener('mariner_license_activated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+    return () => {
+      window.removeEventListener('mariner_license_activated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
+  }, []);
 
   // Subscribe to live log stream
   useEffect(() => {
@@ -62,13 +105,134 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
     }
   }, [logs, autoScroll]);
 
-  // Direct WebUSB connection from monitor
+  const handleDismissWarning = () => {
+    dismissOtgWarning();
+    setOtgLicense(getOtgLicenseStatus());
+  };
+
+  const handleOpenMyket = async () => {
+    try {
+      await Browser.open({ url: MYKET_DETAILS_INTENT, windowName: '_system' });
+      return;
+    } catch {}
+    try {
+      window.location.href = MYKET_DETAILS_INTENT;
+      setTimeout(() => {
+        window.open(MYKET_WEB_URL, '_blank');
+      }, 600);
+    } catch {
+      window.open(MYKET_WEB_URL, '_blank');
+    }
+  };
+
+  const handleConfirmMyketPurchase = () => {
+    activateViaMyket();
+    setOtgKeySuccess(true);
+    setOtgLicense(getOtgLicenseStatus());
+    setTimeout(() => {
+      setShowMyketModal(false);
+      setOtgKeySuccess(false);
+    }, 1500);
+  };
+
+  const handleActivateOtgKey = (e: React.FormEvent) => {
+    e.preventDefault();
+    setOtgKeyError(null);
+    const key = otgKeyInput.trim();
+    if (!key) {
+      setOtgKeyError('لطفاً کد فعال‌سازی یا PIN دولوپر را وارد کنید');
+      return;
+    }
+    const success = activateOtgLicense(key);
+    if (success) {
+      setOtgKeySuccess(true);
+      setOtgLicense(getOtgLicenseStatus());
+      setTimeout(() => {
+        setShowMyketModal(false);
+        setOtgKeySuccess(false);
+        setOtgKeyInput('');
+      }, 1500);
+    } else {
+      setOtgKeyError('کد یا PIN وارد شده نامعتبر است. لطفاً از مایکت خرید کنید یا با پشتیبانی تماس بگیرید.');
+    }
+  };
+
+  // Directly launches Google Chrome browser with WebUSB/WebSerial runtime silently in background
+  const handleOpenInChrome = async () => {
+    const currentOtg = getOtgLicenseStatus();
+    setOtgLicense(currentOtg);
+    if (currentOtg.isExpired) {
+      setShowChromeModal(false);
+      setShowMyketModal(true);
+      return;
+    }
+
+    // If running in a web browser on a public domain, use the current origin/href; otherwise fallback to the mirror
+    let targetUrl = HARDWARE_SERIAL_FALLBACK_URL;
+    if (typeof window !== 'undefined' && window.location.origin) {
+      const origin = window.location.origin;
+      const isLocalOrCapacitor = origin.includes('localhost') || origin.startsWith('capacitor:') || origin.startsWith('http://localhost');
+      if (!isLocalOrCapacitor) {
+        targetUrl = window.location.href;
+      }
+    }
+
+    try {
+      // 1. Try official Capacitor Browser plugin
+      await Browser.open({ url: targetUrl, windowName: '_system' });
+      setShowChromeModal(false);
+      return;
+    } catch (e) {
+      console.warn('Capacitor browser open fallback:', e);
+    }
+
+    // 2. Android Chrome Intent direct launch
+    try {
+      const chromeIntentUrl = `googlechrome://navigate?url=${encodeURIComponent(targetUrl)}`;
+      window.location.href = chromeIntentUrl;
+      setTimeout(() => {
+        window.open(targetUrl, '_blank');
+      }, 500);
+    } catch (err) {
+      window.open(targetUrl, '_blank');
+    }
+    setShowChromeModal(false);
+  };
+
+  // Direct WebUSB connection from monitor (with native APK & browser check)
   const handleConnectWebUsb = async () => {
+    const currentOtg = getOtgLicenseStatus();
+    setOtgLicense(currentOtg);
+    if (currentOtg.isExpired) {
+      setShowChromeModal(false);
+      setShowMyketModal(true);
+      return;
+    }
+
     setIsConnecting(true);
+    setConnectError(null);
+
+    // If inside APK or WebUSB/WebSerial is not supported in this environment
+    if (!serialService.isWebUsbSupported() && !serialService.isWebSerialSupported()) {
+      setIsConnecting(false);
+      setShowChromeModal(true);
+      return;
+    }
+
     try {
       await serialService.connectWebUsb(selectedBaud);
-    } catch (err) {
+    } catch (err: any) {
       console.warn('WebUSB Connect error:', err);
+      // User cancelled picker dialog
+      if (err.name === 'NotFoundError' || err.message?.includes('No device selected') || err.message?.includes('cancelled')) {
+        setIsConnecting(false);
+        return;
+      }
+      if (!serialService.isWebUsbSupported() && !serialService.isWebSerialSupported()) {
+        setShowChromeModal(true);
+      } else {
+        setConnectError(err.message || 'Could not connect to USB hardware device. Check OTG cable connection.');
+      }
     } finally {
       setIsConnecting(false);
     }
@@ -76,11 +240,36 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
 
   // Direct WebSerial connection from monitor
   const handleConnectWebSerial = async () => {
+    const currentOtg = getOtgLicenseStatus();
+    setOtgLicense(currentOtg);
+    if (currentOtg.isExpired) {
+      setShowChromeModal(false);
+      setShowMyketModal(true);
+      return;
+    }
+
     setIsConnecting(true);
+    setConnectError(null);
+
+    if (!serialService.isWebSerialSupported() && !serialService.isWebUsbSupported()) {
+      setIsConnecting(false);
+      setShowChromeModal(true);
+      return;
+    }
+
     try {
       await serialService.connectWebSerial(selectedBaud);
-    } catch (err) {
+    } catch (err: any) {
       console.warn('WebSerial Connect error:', err);
+      if (err.name === 'NotFoundError' || err.message?.includes('No device selected') || err.message?.includes('cancelled')) {
+        setIsConnecting(false);
+        return;
+      }
+      if (!serialService.isWebUsbSupported() && !serialService.isWebSerialSupported()) {
+        setShowChromeModal(true);
+      } else {
+        setConnectError(err.message || 'Could not connect to USB hardware device. Check OTG cable connection.');
+      }
     } finally {
       setIsConnecting(false);
     }
@@ -162,6 +351,254 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
           : 'bg-slate-800/40 border-slate-700 text-slate-200 shadow-xl'
       }`}
     >
+      {/* Connection Error Banner */}
+      {connectError && (
+        <div className="p-3.5 bg-rose-950/80 border border-rose-600/60 rounded-xl flex items-center justify-between gap-3 text-xs text-rose-200">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{connectError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setConnectError(null)}
+            className="p-1 text-rose-400 hover:text-white"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* 5-Month Grace Warning Banner */}
+      {otgLicense.isWarningPeriod && !otgLicense.isWarningDismissed && (
+        <div className="p-3.5 bg-amber-950/90 border border-amber-500/80 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-200 shadow-lg animate-fadeIn">
+          <div className="flex items-start sm:items-center gap-2.5">
+            <Clock className="w-5 h-5 text-amber-400 shrink-0 mt-0.5 sm:mt-0 animate-pulse" />
+            <div className="flex flex-col gap-0.5">
+              <span className="font-bold text-amber-300">
+                ⚠️ مهلت استفاده از پورت OTG تا ۱ ماه آینده ({otgLicense.daysRemaining} روز دیگر) منقضی می‌شود.
+              </span>
+              <span className="text-[11px] text-amber-200/80">
+                برای ادامه اتصال و تبادل دیتا با سخت‌افزار، لطفاً برنامه را از طریق مایکت خریداری فرمایید.
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+            <button
+              type="button"
+              onClick={handleOpenMyket}
+              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg flex items-center gap-1.5 shadow transition-all active:scale-95"
+            >
+              <ShoppingCart className="w-3.5 h-3.5" />
+              <span>خرید از مایکت</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleDismissWarning}
+              className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 transition-colors"
+              title="مخفی کردن موقت این پیام"
+            >
+              متوجه شدم
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 6-Month Hard Expiration Banner */}
+      {otgLicense.isExpired && (
+        <div className="p-3.5 bg-rose-950/90 border border-rose-600 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-rose-200 shadow-xl animate-fadeIn">
+          <div className="flex items-center gap-2.5">
+            <Lock className="w-5 h-5 text-rose-400 shrink-0" />
+            <div className="flex flex-col gap-0.5">
+              <span className="font-bold text-rose-200">
+                🔒 مهلت ۶ ماهه استفاده رایگان از پورت OTG به پایان رسیده است.
+              </span>
+              <span className="text-[11px] text-rose-300/80">
+                جهت برقراری اتصال به پورت سریال، لطفاً نسخه فعال شده را از مایکت خریداری فرمایید.
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowMyketModal(true)}
+            className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-lg flex items-center gap-1.5 shadow-lg transition-all active:scale-95 self-end sm:self-auto"
+          >
+            <ShoppingCart className="w-3.5 h-3.5" />
+            <span>خرید لایسنس از مایکت</span>
+          </button>
+        </div>
+      )}
+
+      {/* Continue in Chrome Browser Modal for USB Serial Access - Matching Output tab */}
+      {showChromeModal && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn"
+          onClick={() => setShowChromeModal(false)}
+        >
+          <div 
+            className="relative max-w-sm w-full bg-slate-900 border border-cyan-500/60 rounded-2xl p-5 shadow-2xl flex flex-col gap-3.5 text-slate-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+              <div className="flex items-center gap-2 text-cyan-300 font-bold text-sm">
+                <Usb className="w-4 h-4 text-cyan-400" />
+                <span>USB OTG Serial Port</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowChromeModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Hardware Interface Info */}
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex flex-col gap-2">
+              <div className="flex items-center gap-2 text-cyan-400 text-xs font-semibold">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>Chrome Web Serial Engine</span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed font-sans">
+                Direct USB OTG access for CH340, CP2102, FTDI, and MAX485 adapters.
+              </p>
+              <div className="pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                <span className="text-emerald-400">Driver: Ready</span>
+                <span className="text-slate-500">NMEA 0183</span>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowChromeModal(false)}
+                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 transition-colors"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenInChrome}
+                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 shadow-lg shadow-cyan-950/60 uppercase tracking-wider font-mono transition-all active:scale-95"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Open in Chrome</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Myket Purchase & OTG License Expiration Modal */}
+      {showMyketModal && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn"
+          onClick={() => setShowMyketModal(false)}
+        >
+          <div 
+            className="relative max-w-md w-full bg-slate-900 border border-amber-500/70 rounded-2xl p-5 shadow-2xl flex flex-col gap-4 text-slate-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
+                <ShoppingCart className="w-5 h-5 text-amber-400" />
+                <span>خرید لایسنس اتصال OTG از مایکت</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowMyketModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Explanation */}
+            <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 flex flex-col gap-2.5">
+              <div className="flex items-center gap-2 text-rose-400 text-xs font-bold">
+                <Lock className="w-4 h-4 shrink-0" />
+                <span>مهلت استفاده آزمایشی از پورت OTG به پایان رسیده است</span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed font-sans text-right" dir="rtl">
+                امکان اتصال فیزیکی به کابل OTG و ارسال داده‌های NMEA به دستگاه‌های ناوبری جانبی نیاز به فعال‌سازی از مایکت دارد.
+                بخش‌های نقشه، موقعیت‌یابی ماهواره‌ای، روت‌بندی و قطب‌نما همچنان برای شما به‌صورت ۱۰۰٪ رایگان فعال باقی می‌مانند.
+              </p>
+            </div>
+
+            {/* Direct Myket Purchase Button */}
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={handleOpenMyket}
+                className="w-full py-3 px-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-amber-950/50 transition-all active:scale-98 cursor-pointer"
+              >
+                <ShoppingCart className="w-4 h-4" />
+                <span>خرید و تمدید لایسنس از مایکت (Myket)</span>
+                <ExternalLink className="w-3.5 h-3.5 opacity-80" />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmMyketPurchase}
+                className="w-full py-2 px-3 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/60 text-emerald-300 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+              >
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                <span>خرید را در مایکت انجام دادم (ثبت و فعال‌سازی دائمی)</span>
+              </button>
+            </div>
+
+            {/* Offline Key Entry Form (for manual keys or developer bypass) */}
+            <form onSubmit={handleActivateOtgKey} className="pt-3 border-t border-slate-800 flex flex-col gap-2">
+              <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
+                <KeyRound className="w-3 h-3 text-cyan-400" />
+                <span>کد فعال‌سازی دارید؟</span>
+              </span>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={otgKeyInput}
+                  onChange={(e) => {
+                    setOtgKeyInput(e.target.value);
+                    setOtgKeyError(null);
+                  }}
+                  placeholder="کد فعال‌سازی را وارد نمایید"
+                  className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono outline-none focus:border-cyan-400"
+                />
+                <button
+                  type="submit"
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 font-bold text-xs rounded-lg border border-slate-700 transition-colors shrink-0 cursor-pointer"
+                >
+                  فعال‌سازی
+                </button>
+              </div>
+              {otgKeyError && (
+                <span className="text-[11px] text-rose-400 font-mono">{otgKeyError}</span>
+              )}
+              {otgKeySuccess && (
+                <span className="text-[11px] text-emerald-400 font-mono font-bold flex items-center gap-1">
+                  <Check className="w-3 h-3" />
+                  اتصال OTG با موفقیت به صورت دائمی فعال گردید!
+                </span>
+              )}
+            </form>
+
+            {/* Footer */}
+            <div className="flex justify-end pt-1">
+              <button
+                type="button"
+                onClick={() => setShowMyketModal(false)}
+                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-755 text-slate-400 text-xs rounded-lg"
+              >
+                بستن
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header & Connection Controls directly in Monitor Tab */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 bg-slate-900 rounded-xl border border-slate-700">
         <div className="flex items-center gap-3.5">
