@@ -606,7 +606,7 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
     }
 
     if (currentRoute.waypoints.length >= 50) {
-      showToast('حداکثر ۵۰ نقطه مسیر مجاز است (Maximum 50 Waypoints reached).', 'warn');
+      showToast('Maximum 50 waypoints reached per route.', 'warn');
       return;
     }
 
@@ -629,12 +629,12 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
       handleStartNavigation(newWp);
     }
 
-    showToast(`نقطه ${newWp.name} با دبل‌کلیک اضافه شد (${updatedWaypoints.length}/50)`, 'success');
+    showToast(`Waypoint ${newWp.name} added (${updatedWaypoints.length}/50)`, 'success');
   };
 
   const handleClearLastWaypoint = () => {
     if (!activeRoute || activeRoute.waypoints.length === 0) {
-      showToast('هیچ نقطه‌ای برای حذف وجود ندارد (No waypoints to clear)', 'info');
+      showToast('No waypoints to clear', 'info');
       return;
     }
 
@@ -657,14 +657,14 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
         waypointId: null,
         targetWaypoint: null,
       }));
-      showToast(`نقطه ${lastWp.name} حذف شد. تمامی نقاط پاک شدند.`, 'info');
+      showToast(`Waypoint ${lastWp.name} removed. All waypoints cleared.`, 'info');
     } else {
       if (targetWaypointId === lastWp.id) {
         const prevTarget = remainingWaypoints[remainingWaypoints.length - 1];
         setTargetWaypointId(prevTarget.id);
         handleStartNavigation(prevTarget);
       }
-      showToast(`نقطه ${lastWp.name} حذف شد. (${remainingWaypoints.length} نقطه باقی‌مانده)`, 'info');
+      showToast(`Waypoint ${lastWp.name} removed (${remainingWaypoints.length} remaining)`, 'info');
     }
   };
 
@@ -1302,7 +1302,7 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
               title="Activate Double-Click Waypoint Mode (Up to 50 Waypoints)"
             >
               <MapPinPlus className="w-3.5 h-3.5" />
-              <span>{isMapPickMode ? `افزودن نقطه فعال (${activeRoute?.waypoints.length || 0}/50)` : 'Add Waypoint (دبل کلیک)'}</span>
+              <span>{isMapPickMode ? `Waypoint Mode Active (${activeRoute?.waypoints.length || 0}/50)` : 'Add Waypoint (Double-Click)'}</span>
             </button>
 
             {/* Clear Waypoint Button (Sequentially removes from last to first) */}
@@ -1315,7 +1315,7 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
                   ? 'opacity-40 cursor-not-allowed bg-slate-900 border-slate-800 text-slate-500'
                   : 'bg-slate-800 hover:bg-rose-950/80 text-rose-400 border-slate-700 hover:border-rose-500 active:scale-95'
               }`}
-              title="Clear last added waypoint (حذف از آخر به اول)"
+              title="Clear last added waypoint (Sequential Undo)"
             >
               <Undo2 className="w-3.5 h-3.5" />
               <span>Clear Waypoint</span>

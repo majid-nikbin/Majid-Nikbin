@@ -18,6 +18,7 @@ import {
   Waves,
   Anchor,
   Tag,
+  Flag,
   AlertTriangle,
   Radio,
   Clock,
@@ -35,9 +36,12 @@ import {
   Trash2,
   CheckCircle2,
   Database,
-  Search
+  Search,
+  Sparkles
 } from 'lucide-react';
-import { GpsData, CompassData, MarineRoute, Waypoint, NavigationSession } from '../types';
+import { GpsData, CompassData, MarineRoute, Waypoint, NavigationSession, UserTag, WorkingAreaRecord } from '../types';
+import { WorkingAreaModal } from './WorkingAreaModal';
+import { UserTagModal } from './UserTagModal';
 import { 
   WORLD_LANDMASSES, 
   INLAND_WATER_BODIES,
@@ -203,6 +207,23 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
   const [showTidalStreams, setShowTidalStreams] = useState<boolean>(true);
   const [showRangeRings, setShowRangeRings] = useState<boolean>(true);
   const [showLayersMenu, setShowLayersMenu] = useState<boolean>(false);
+
+  // User Custom Tags & Places (Distinctive vibrant color pins and labels)
+  const [userTags, setUserTags] = useState<UserTag[]>(() => {
+    try {
+      const saved = localStorage.getItem('mariner_user_tags_v1');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  });
+  const [isTagModalOpen, setIsTagModalOpen] = useState<boolean>(false);
+  const [tagToEdit, setTagToEdit] = useState<UserTag | null>(null);
+  const [tagInitialCoords, setTagInitialCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [showUserTags, setShowUserTags] = useState<boolean>(true);
+  const [isAddFlagMode, setIsAddFlagMode] = useState<boolean>(false);
+
+  // Download Working Area Modal state
+  const [isWorkingAreaModalOpen, setIsWorkingAreaModalOpen] = useState<boolean>(false);
 
   // Touch & Drag tracking for smooth panning and pinch-to-zoom
   const touchDistanceRef = useRef<number | null>(null);
@@ -491,6 +512,34 @@ function drawSmoothPolygon(
     }
   }, [triggerTileRedraw]);
 
+  // User Custom Tag Handlers
+  const handleSaveUserTag = useCallback((tag: UserTag) => {
+    setUserTags((prev) => {
+      const exists = prev.some((t) => t.id === tag.id);
+      const updated = exists ? prev.map((t) => (t.id === tag.id ? tag : t)) : [...prev, tag];
+      try {
+        localStorage.setItem('mariner_user_tags_v1', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  }, []);
+
+  const handleDeleteUserTag = useCallback((id: string) => {
+    setUserTags((prev) => {
+      const updated = prev.filter((t) => t.id !== id);
+      try {
+        localStorage.setItem('mariner_user_tags_v1', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  }, []);
+
+  const handleNavigateToUserTag = useCallback((tag: UserTag) => {
+    if (onMapClickAddWaypoint) {
+      onMapClickAddWaypoint(tag.latitude, tag.longitude);
+    }
+  }, [onMapClickAddWaypoint]);
+
   // Main Canvas Rendering Engine
   const renderChart = useCallback(() => {
     const canvas = canvasRef.current;
@@ -659,6 +708,19 @@ function drawSmoothPolygon(
       renderLiveMapTiles(
         ctx,
         liveProvider,
+        zoom,
+        geoToCanvas,
+        canvasToGeo,
+        width,
+        height,
+        triggerTileRedraw,
+        showLiveSeamarks
+      );
+    } else if (mapMode === 'vector') {
+      // High-Definition Electronic Navigational Chart (ENC Vector Nautical Chart)
+      renderLiveMapTiles(
+        ctx,
+        'google_nautical',
         zoom,
         geoToCanvas,
         canvasToGeo,
@@ -1506,6 +1568,74 @@ function drawSmoothPolygon(
     }
 
     // =========================================================================
+    // 12B. USER CUSTOM FLAG MARKS (Distinctive High-Visibility Flags & Labels)
+    // =========================================================================
+    if (showUserTags && userTags.length > 0) {
+      userTags.forEach((tag) => {
+        const pt = geoToCanvas(tag.longitude, tag.latitude, width, height);
+        if (pt.x < -150 || pt.x > width + 150 || pt.y < -150 || pt.y > height + 150) return;
+
+        const tagColor = tag.color || '#ec4899';
+        const pulse = Math.sin(animPhase * 3) * 3;
+
+        // 1. Draw Flagpole
+        ctx.beginPath();
+        ctx.moveTo(pt.x, pt.y);
+        ctx.lineTo(pt.x, pt.y - 24);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+
+        // 2. Triangular Nautical Pennant Flag
+        ctx.beginPath();
+        ctx.moveTo(pt.x, pt.y - 24);
+        ctx.lineTo(pt.x + 16, pt.y - 17);
+        ctx.lineTo(pt.x, pt.y - 10);
+        ctx.closePath();
+        ctx.fillStyle = tagColor;
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+
+        // 3. Ground beacon pin & pulsating ring
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = tagColor;
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 8 + pulse, 0, Math.PI * 2);
+        ctx.strokeStyle = `${tagColor}88`;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // 4. Distinctive Badge Background with neon border
+        const labelText = `⚑ ${tag.name}`;
+        ctx.font = 'bold 11px sans-serif';
+        const tw = ctx.measureText(labelText).width;
+        const badgeW = tw + 14;
+        const badgeH = 20;
+
+        ctx.fillStyle = isNightMode ? 'rgba(30, 5, 10, 0.95)' : 'rgba(15, 23, 42, 0.94)';
+        ctx.fillRect(pt.x + 18, pt.y - 26, badgeW, badgeH);
+
+        ctx.strokeStyle = tagColor;
+        ctx.lineWidth = 1.8;
+        ctx.strokeRect(pt.x + 18, pt.y - 26, badgeW, badgeH);
+
+        // 5. White Bold Label text
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(labelText, pt.x + 25, pt.y - 16);
+      });
+    }
+
+    // =========================================================================
     // 13. DIRECT NAVIGATION TRACK VISUALIZATION (To Destination Waypoint)
     // =========================================================================
     if (navigationSession.isNavigating && targetWaypoint) {
@@ -2057,6 +2187,43 @@ function drawSmoothPolygon(
               }
             }
 
+            // Detect tap on User Custom Tags / Flags
+            if (!handledWaypoint && showUserTags && userTags.length > 0) {
+              for (const tag of userTags) {
+                const tagPt = geoToCanvas(tag.longitude, tag.latitude, rect.width, rect.height);
+                const d = Math.hypot(clickX - tagPt.x, clickY - tagPt.y);
+                if (d <= 25) {
+                  setTagToEdit(tag);
+                  setIsTagModalOpen(true);
+                  handledWaypoint = true;
+                  break;
+                }
+              }
+            }
+
+            // If Flag Placement Mode is active, drop flag at tap location immediately
+            if (!handledWaypoint && isAddFlagMode) {
+              const geo = canvasToGeo(clickX, clickY, rect.width, rect.height);
+              const newTag: UserTag = {
+                id: `flag_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+                name: `Flag ${userTags.length + 1}`,
+                latitude: Number(geo.lat.toFixed(5)),
+                longitude: Number(geo.lon.toFixed(5)),
+                color: '#ec4899',
+                createdAt: Date.now()
+              };
+              setUserTags((prev) => {
+                const updated = [...prev, newTag];
+                try { localStorage.setItem('mariner_user_tags_v1', JSON.stringify(updated)); } catch {}
+                return updated;
+              });
+              setTagToEdit(newTag);
+              setIsTagModalOpen(true);
+              setIsAddFlagMode(false);
+              handledWaypoint = true;
+              lastTapRef.current = null;
+            }
+
             if (!handledWaypoint) {
               if (isDoubleTap) {
                 // Mobile double-tap zoom smoothly towards tapped point
@@ -2106,9 +2273,9 @@ function drawSmoothPolygon(
       canvas.removeEventListener('touchend', handleNativeTouchEnd);
       canvas.removeEventListener('touchcancel', handleNativeTouchEnd);
     };
-  }, [canvasToGeo, geoToCanvas, isAddWaypointMode, onMapClickAddWaypoint, activeRoute, onSelectWaypoint, isFullscreen]);
+  }, [canvasToGeo, geoToCanvas, isAddWaypointMode, isAddFlagMode, onMapClickAddWaypoint, activeRoute, onSelectWaypoint, isFullscreen, showUserTags, userTags]);
 
-  // Canvas Single Click (Selects existing waypoint when not adding)
+  // Canvas Single Click (Selects existing waypoint/flag or places flag when in flag mode)
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (isAddWaypointMode) {
       // In Add Waypoint mode, single clicks are reserved for dragging/panning to prevent accidental waypoint drops!
@@ -2125,11 +2292,46 @@ function drawSmoothPolygon(
       for (const wp of activeRoute.waypoints) {
         const wpPt = geoToCanvas(wp.longitude, wp.latitude, rect.width, rect.height);
         const dist = Math.hypot(x - wpPt.x, y - wpPt.y);
-        if (dist <= 22) {
+        if (dist <= 25) {
           onSelectWaypoint(wp);
           return;
         }
       }
+    }
+
+    // Detect click on User Custom Flags (allow edit/delete on click)
+    if (showUserTags && userTags.length > 0) {
+      for (const tag of userTags) {
+        const tagPt = geoToCanvas(tag.longitude, tag.latitude, rect.width, rect.height);
+        const dist = Math.hypot(x - tagPt.x, y - tagPt.y);
+        if (dist <= 25) {
+          setTagToEdit(tag);
+          setIsTagModalOpen(true);
+          return;
+        }
+      }
+    }
+
+    // If Flag Placement Mode is active, drop flag at clicked location
+    if (isAddFlagMode) {
+      const geo = canvasToGeo(x, y, rect.width, rect.height);
+      const newTag: UserTag = {
+        id: `flag_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        name: `Flag ${userTags.length + 1}`,
+        latitude: Number(geo.lat.toFixed(5)),
+        longitude: Number(geo.lon.toFixed(5)),
+        color: '#ec4899',
+        createdAt: Date.now()
+      };
+      setUserTags((prev) => {
+        const updated = [...prev, newTag];
+        try { localStorage.setItem('mariner_user_tags_v1', JSON.stringify(updated)); } catch {}
+        return updated;
+      });
+      setTagToEdit(newTag);
+      setIsTagModalOpen(true);
+      setIsAddFlagMode(false);
+      return;
     }
   };
 
@@ -2455,22 +2657,15 @@ function drawSmoothPolygon(
               </button>
             </div>
 
-            {/* Pre-cache Viewport button - Compact, never overflows phone edge */}
+            {/* Download Working Area Button (Fullscreen) */}
             <button
               type="button"
-              onClick={handlePreCacheCurrentView}
-              disabled={isPreCaching || !isOnline}
-              className={`px-2 py-1 rounded-lg border text-[9px] sm:text-[10px] font-mono flex items-center gap-1 shadow-lg transition-all shrink-0 ${
-                isPreCaching
-                  ? 'bg-amber-500/20 border-amber-500 text-amber-300 animate-pulse'
-                  : !isOnline
-                  ? 'bg-slate-900/60 border-slate-800 text-slate-500 cursor-not-allowed'
-                  : 'bg-slate-900/90 border-cyan-500/50 text-cyan-300 hover:bg-cyan-950/80'
-              }`}
-              title={isOnline ? "Download and cache current viewport tiles for offline sailing" : "Offline: Serving saved tiles"}
+              onClick={() => setIsWorkingAreaModalOpen(true)}
+              className="px-2.5 py-1 rounded-lg bg-emerald-600/90 hover:bg-emerald-500 active:scale-95 text-white font-bold text-[9px] sm:text-[10px] font-sans flex items-center gap-1.5 shadow-lg shadow-emerald-950/40 backdrop-blur-md transition-all shrink-0"
+              title="Download Working Area for fast offline marine navigation"
             >
               <Download className="w-3 h-3" />
-              <span>{isPreCaching ? 'Caching...' : <span className="inline">Cache</span>}</span>
+              <span>Download Working Area</span>
             </button>
           </div>
         </div>
@@ -2561,22 +2756,15 @@ function drawSmoothPolygon(
               </button>
             </div>
 
-            {/* Pre-cache Viewport Button */}
+            {/* Download Working Area Button (Standard Top Bar) */}
             <button
               type="button"
-              onClick={handlePreCacheCurrentView}
-              disabled={isPreCaching || !isOnline}
-              className={`pointer-events-auto px-2 py-1 rounded-lg border text-[10px] font-mono flex items-center gap-1 shadow-lg backdrop-blur-md transition-all ${
-                isPreCaching
-                  ? 'bg-amber-500/20 border-amber-500 text-amber-300 animate-pulse'
-                  : !isOnline
-                  ? 'bg-slate-900/60 border-slate-800 text-slate-500 cursor-not-allowed'
-                  : 'bg-slate-900/90 border-cyan-500/50 text-cyan-300 hover:bg-cyan-950/80'
-              }`}
-              title={isOnline ? "Save all tiles in current viewport for offline navigation" : "Offline: Using saved cache"}
+              onClick={() => setIsWorkingAreaModalOpen(true)}
+              className="pointer-events-auto px-2.5 py-1 rounded-lg bg-emerald-600/90 hover:bg-emerald-500 active:scale-95 text-white font-bold text-[10px] font-sans flex items-center gap-1.5 shadow-lg shadow-emerald-950/40 backdrop-blur-md transition-all shrink-0"
+              title="Download Working Area for fast offline marine navigation"
             >
-              <Download className="w-3 h-3" />
-              <span>{isPreCaching ? `Caching ${preCacheProgress?.done}/${preCacheProgress?.total}...` : 'Cache Viewport'}</span>
+              <Download className="w-3.5 h-3.5" />
+              <span>Download Working Area</span>
             </button>
 
             {!isOnline && mapMode === 'high_res' && (
@@ -2664,10 +2852,10 @@ function drawSmoothPolygon(
               <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping shrink-0" />
               <div className="flex flex-col min-w-0">
                 <span className="text-[11px] sm:text-xs font-bold text-amber-300 truncate">
-                  📍 دبل‌کلیک روی نقشه برای ثبت نقطه ({waypointCount}/50)
+                  📍 Double-click on chart to place waypoint ({waypointCount}/50)
                 </span>
                 <span className="text-[9px] sm:text-[10px] text-slate-400 truncate hidden xs:inline">
-                  Double-click on chart to place waypoint
+                  Sequential route waypoints
                 </span>
               </div>
             </div>
@@ -2678,7 +2866,7 @@ function drawSmoothPolygon(
                   type="button"
                   onClick={handleClearLastWaypoint}
                   className="px-2 py-1 rounded-lg bg-rose-950/80 border border-rose-700 hover:bg-rose-900 text-rose-200 text-[10px] sm:text-xs font-bold flex items-center gap-1 transition-all active:scale-95"
-                  title="Clear Last Waypoint (حذف از آخر به اول)"
+                  title="Clear Last Waypoint (Sequential Undo)"
                 >
                   <Undo2 className="w-3 h-3" />
                   <span>Undo</span>
@@ -2693,6 +2881,40 @@ function drawSmoothPolygon(
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Add Flag Guidance Banner */}
+      {isAddFlagMode && (
+        <div className={`absolute ${
+          navigationSession.isNavigating 
+            ? 'bottom-16 sm:bottom-20' 
+            : 'bottom-4 sm:bottom-6'
+        } left-1/2 -translate-x-1/2 z-40 pointer-events-auto max-w-[calc(100vw-5rem)] sm:max-w-md w-max shadow-2xl animate-fadeIn`}>
+          <div className={`p-2 sm:p-2.5 rounded-xl border backdrop-blur-md shadow-2xl flex items-center justify-between gap-2.5 text-xs font-mono ${
+            isNightMode ? 'bg-red-950/95 border-pink-500/80 text-pink-200' : 'bg-slate-900/95 border-pink-500 text-slate-100 shadow-[0_0_20px_rgba(236,72,153,0.3)]'
+          }`}>
+            <div className="flex items-center gap-2 min-w-0">
+              <Flag className="w-4 h-4 text-pink-400 animate-bounce shrink-0" />
+              <div className="flex flex-col min-w-0">
+                <span className="text-[11px] sm:text-xs font-bold text-pink-300 truncate">
+                  🚩 Tap anywhere on chart to drop Flag ({userTags.length} flags)
+                </span>
+                <span className="text-[9px] sm:text-[10px] text-slate-400 truncate hidden xs:inline">
+                  Click any placed flag to rename or delete
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsAddFlagMode(false)}
+              className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+              title="Cancel flag mode"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       )}
@@ -2763,9 +2985,30 @@ function drawSmoothPolygon(
               ? 'bg-red-950/90 border-red-800 text-rose-300 hover:bg-rose-900 active:scale-95'
               : 'bg-slate-900/90 border-slate-700 text-rose-400 hover:bg-slate-800 hover:border-rose-400 hover:text-rose-300 active:scale-95'
           }`}
-          title={waypointCount > 0 ? `Clear Waypoint (حذف به ترتیب از آخر به اول) [${waypointCount} نقطه]` : 'Clear Waypoint (هیچ نقطه‌ای برای حذف نیست)'}
+          title={waypointCount > 0 ? `Clear Last Waypoint (Sequential Undo) [${waypointCount} points]` : 'Clear Waypoint (No waypoints to undo)'}
         >
           <Undo2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+        </button>
+
+        {/* User Custom Flag Button (Direct single-click toggle placement mode) */}
+        <button
+          type="button"
+          onClick={() => setIsAddFlagMode((prev) => !prev)}
+          className={`relative w-8 h-8 sm:w-9 sm:h-9 rounded-xl border backdrop-blur-md transition-all shadow-xl flex items-center justify-center ${
+            isAddFlagMode
+              ? 'bg-pink-600 border-pink-300 text-white font-black shadow-pink-500/50 scale-105 animate-pulse ring-2 ring-pink-400'
+              : isNightMode
+              ? 'bg-red-950/90 border-red-800 text-pink-400 hover:bg-red-900'
+              : 'bg-slate-900/90 border-slate-700 text-pink-400 hover:bg-slate-800 hover:border-pink-400'
+          }`}
+          title={isAddFlagMode ? 'Cancel Flag Placement Mode' : `Drop Flag Mark on Chart [${userTags.length} Marks]`}
+        >
+          <Flag className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-pink-400" />
+          {userTags.length > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-4 h-4 px-0.5 rounded-full bg-pink-500 text-white text-[9px] font-black font-mono flex items-center justify-center border border-slate-900 leading-none">
+              {userTags.length}
+            </span>
+          )}
         </button>
 
         {/* Zoom In Button */}
@@ -2825,544 +3068,263 @@ function drawSmoothPolygon(
         </button>
       </div>
 
-      {/* Layers & Online Map Settings Popup */}
+      {/* Layers & Map Selection Popup (Clean, focused only on Layer Selection) */}
       {showLayersMenu && (
-        <div className={`absolute ${isFullscreen ? 'top-14 sm:top-16' : 'top-14 sm:top-16'} right-12 sm:right-14 z-40 p-3 rounded-xl border shadow-2xl backdrop-blur-lg flex flex-col gap-2.5 min-w-[240px] max-w-[calc(100vw-60px)] max-h-[80vh] overflow-y-auto text-xs font-mono ${
+        <div className={`absolute ${isFullscreen ? 'top-14 sm:top-16' : 'top-14 sm:top-16'} right-12 sm:right-14 z-40 p-3 rounded-2xl border shadow-2xl backdrop-blur-lg flex flex-col gap-2.5 min-w-[260px] max-w-[calc(100vw-60px)] max-h-[80vh] overflow-y-auto text-xs font-sans ${
           isNightMode ? 'bg-red-950/95 border-red-800 text-red-200' : 'bg-slate-900/95 border-slate-700 text-slate-200'
-        }`}>
-          {/* Quick Region Jump Buttons */}
-          <div className="pb-2 border-b border-slate-800 flex flex-col gap-1.5">
-            <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1">
-              <Compass className="w-3 h-3 text-amber-400" />
-              <span>Quick Region Jump</span>
+        }`} dir="ltr">
+          {/* Header */}
+          <div className="pb-2 border-b border-slate-800 flex items-center justify-between">
+            <span className="text-[11px] font-bold text-cyan-300 flex items-center gap-1.5">
+              <Layers className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Chart Layers & Overlays</span>
             </span>
-            <div className="grid grid-cols-2 gap-1.5 mt-0.5">
-              <button
-                type="button"
-                onClick={() => {
-                  setCenter([20.0, 20.0]);
-                  setZoom(1.8);
-                  setAutoFollowVessel(false);
-                }}
-                className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-cyan-950/80 border border-slate-700 hover:border-cyan-500/60 text-left transition-all"
-                title="Global World View (All Oceans & Continents)"
-              >
-                <div className="font-bold text-white text-[10px]">🌍 World View</div>
-                <div className="text-[8px] text-slate-400">Global Oceans</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setCenter([53.2, 26.5]);
-                  setZoom(45);
-                  setAutoFollowVessel(false);
-                }}
-                className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-amber-950/80 border border-slate-700 hover:border-amber-500/60 text-left transition-all"
-                title="Persian Gulf & Strait of Hormuz"
-              >
-                <div className="font-bold text-white text-[10px]">⚓ Persian Gulf</div>
-                <div className="text-[8px] text-slate-400">Strait of Hormuz</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setCenter([51.0, 39.8]);
-                  setZoom(28);
-                  setAutoFollowVessel(false);
-                }}
-                className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-cyan-950/80 border border-slate-700 hover:border-cyan-500/60 text-left transition-all"
-                title="Caspian Sea (North & South Basins)"
-              >
-                <div className="font-bold text-white text-[10px]">🌊 Caspian Sea</div>
-                <div className="text-[8px] text-slate-400">Caspian Basin</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setCenter([35.0, 43.4]);
-                  setZoom(26);
-                  setAutoFollowVessel(false);
-                }}
-                className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-cyan-950/80 border border-slate-700 hover:border-cyan-500/60 text-left transition-all"
-                title="Black Sea & Sea of Azov"
-              >
-                <div className="font-bold text-white text-[10px]">🌊 Black Sea</div>
-                <div className="text-[8px] text-slate-400">Bosphorus & Azov</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setCenter([18.0, 35.0]);
-                  setZoom(16);
-                  setAutoFollowVessel(false);
-                }}
-                className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-cyan-950/80 border border-slate-700 hover:border-cyan-500/60 text-left transition-all"
-                title="Mediterranean Sea"
-              >
-                <div className="font-bold text-white text-[10px]">🌊 Mediterranean</div>
-                <div className="text-[8px] text-slate-400">Gibraltar to Levant</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setCenter([vesselLon, vesselLat]);
-                  setAutoFollowVessel(true);
-                  setZoom(55);
-                }}
-                className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-950/80 border border-slate-700 hover:border-emerald-500/60 text-left transition-all"
-                title="Vessel Position Focus"
-              >
-                <div className="font-bold text-white text-[10px]">⛵ Vessel Fix</div>
-                <div className="text-[8px] text-slate-400">Center on GPS</div>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => setShowLayersMenu(false)}
+              className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
 
-          {/* Tactical Marine Zoom Presets */}
+          {/* 1. Base Map Layer Selection */}
           <div className="pb-2 border-b border-slate-800 flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
-                <Search className="w-3 h-3 text-emerald-400" />
-                <span>Tactical Marine Zoom</span>
-              </span>
-              <span className="text-[9px] font-mono text-emerald-300">
-                {zoom >= 1000 ? `${(zoom / 1000).toFixed(0)}k×` : `${zoom.toFixed(0)}×`}
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-1.5 mt-0.5">
-              <button
-                type="button"
-                onClick={() => setZoom(350)}
-                className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-950/80 border border-slate-700 hover:border-emerald-500/60 text-left transition-all"
-              >
-                <div className="font-bold text-white text-[10px]">⚓ Approach</div>
-                <div className="text-[8px] text-slate-400">Coastal Entry (350×)</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setZoom(3500)}
-                className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-950/80 border border-slate-700 hover:border-emerald-500/60 text-left transition-all"
-              >
-                <div className="font-bold text-white text-[10px]">🚤 Port & Marina</div>
-                <div className="text-[8px] text-slate-400">Harbor Basin (3.5k×)</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setZoom(50000)}
-                className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-950/80 border border-slate-700 hover:border-emerald-500/60 text-left transition-all"
-              >
-                <div className="font-bold text-white text-[10px]">🔍 Pier & Berth</div>
-                <div className="text-[8px] text-slate-400">Docking Slip (50k×)</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setZoom(400000)}
-                className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-950/80 border border-slate-700 hover:border-emerald-500/60 text-left transition-all"
-              >
-                <div className="font-bold text-white text-[10px]">🔬 Ultra Detail</div>
-                <div className="text-[8px] text-slate-400">Deep Macro (400k×)</div>
-              </button>
-            </div>
-          </div>
-
-          {/* Heading Source Selection */}
-          <div className="pb-2 border-b border-slate-800 flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1">
-                <Radio className="w-3 h-3" />
-                <span>Heading Reference</span>
-              </span>
-              <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 font-bold">
-                {activeHeadingMode === 'gps' ? 'GPS COG (ACTIVE)' : 'COMPASS SENSOR'}
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-1 mt-0.5">
-              <button
-                type="button"
-                onClick={() => setHeadingMode('gps')}
-                className={`px-2 py-1.5 rounded-lg text-left transition-all ${
-                  activeHeadingMode === 'gps'
-                    ? 'bg-cyan-600 text-white font-bold'
-                    : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
-                }`}
-              >
-                <div className="text-[10px] font-bold flex items-center gap-1">
-                  <Radio className="w-2.5 h-2.5" />
-                  <span>GPS COG</span>
-                </div>
-                <div className="text-[8px] text-slate-300">Course Over Ground (Default)</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setHeadingMode('compass')}
-                className={`px-2 py-1.5 rounded-lg text-left transition-all ${
-                  activeHeadingMode === 'compass'
-                    ? 'bg-amber-600 text-white font-bold'
-                    : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
-                }`}
-              >
-                <div className="text-[10px] font-bold flex items-center gap-1">
-                  <Compass className="w-2.5 h-2.5" />
-                  <span>COMPASS</span>
-                </div>
-                <div className="text-[8px] text-slate-300">Magnetic Device Heading</div>
-              </button>
-            </div>
-          </div>
-
-          {/* High-Resolution Map Mode & Offline Cache Manager */}
-          <div className="pb-2 border-b border-slate-800 flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1">
-                <Globe className="w-3 h-3" />
-                <span>Map Base & Offline Quality</span>
-              </span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
-                mapMode === 'high_res' ? 'bg-emerald-950 text-emerald-300 border border-emerald-700' : 'bg-cyan-950 text-cyan-300 border border-cyan-700'
-              }`}>
-                {mapMode === 'high_res' ? 'HIGH-RES TILES' : 'VECTOR'}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-1">
+            <span className="text-[10px] font-bold text-slate-300">Base Chart Layer:</span>
+            <div className="grid grid-cols-2 gap-1.5">
               <button
                 type="button"
                 onClick={() => setMapMode('high_res')}
-                className={`px-2 py-1.5 rounded-lg text-left transition-all ${
+                className={`p-2 rounded-xl text-left transition-all flex flex-col gap-0.5 ${
                   mapMode === 'high_res'
-                    ? 'bg-emerald-600 text-white font-bold'
+                    ? 'bg-emerald-600 text-white font-bold shadow'
                     : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
                 }`}
               >
-                <div className="text-[10px] font-bold flex items-center gap-1">
-                  <Globe className="w-2.5 h-2.5" />
-                  <span>High-Res Tiles</span>
+                <div className="flex items-center gap-1 text-[11px]">
+                  <Globe className="w-3 h-3" />
+                  <span>Satellite Imagery</span>
                 </div>
-                <div className="text-[8px] text-slate-300">Satellite / Marine (Offline Cached)</div>
+                <div className="text-[9px] opacity-80 font-mono">High-Res Satellite</div>
               </button>
+
               <button
                 type="button"
                 onClick={() => setMapMode('vector')}
-                className={`px-2 py-1.5 rounded-lg text-left transition-all ${
+                className={`p-2 rounded-xl text-left transition-all flex flex-col gap-0.5 ${
                   mapMode === 'vector'
-                    ? 'bg-cyan-600 text-white font-bold'
+                    ? 'bg-cyan-600 text-white font-bold shadow'
                     : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
                 }`}
               >
-                <div className="text-[10px] font-bold flex items-center gap-1">
-                  <Layers className="w-2.5 h-2.5" />
-                  <span>Vector Chart</span>
+                <div className="flex items-center gap-1 text-[11px]">
+                  <Layers className="w-3 h-3" />
+                  <span>ENC Vector</span>
                 </div>
-                <div className="text-[8px] text-slate-300">Clean Digital Nautical Vectors</div>
+                <div className="text-[9px] opacity-80 font-mono">ECDIS S-52 Style</div>
               </button>
             </div>
 
-            {/* Offline Cache Storage Status & Actions */}
-            <div className="p-2 rounded-lg bg-slate-950/80 border border-emerald-500/30 flex flex-col gap-1.5 mt-0.5">
-              <div className="flex items-center justify-between text-[10px]">
-                <span className="text-emerald-400 font-bold flex items-center gap-1">
-                  <Database className="w-3 h-3 text-emerald-400" />
-                  <span>Persistent Tile Storage:</span>
-                </span>
-                <span className="font-bold text-white">{cacheStats.count} tiles ({cacheStats.estimatedMb} MB)</span>
-              </div>
-              <div className="text-[8px] text-slate-400">
-                All viewed tiles are automatically cached on device storage and remain 100% available offline without internet.
-              </div>
-              <div className="flex items-center gap-1 mt-1">
-                <button
-                  type="button"
-                  onClick={handlePreCacheCurrentView}
-                  disabled={isPreCaching || !isOnline}
-                  className="flex-1 px-2 py-1 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white rounded text-[9px] font-bold flex items-center justify-center gap-1 transition-all"
-                >
-                  <Download className="w-2.5 h-2.5" />
-                  <span>{isPreCaching ? 'Downloading...' : 'Cache Current View'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleClearCache}
-                  className="px-2 py-1 bg-slate-800 hover:bg-red-950 text-slate-400 hover:text-red-300 rounded text-[9px] border border-slate-700 hover:border-red-600/50 flex items-center gap-1 transition-all"
-                  title="Clear all stored offline tiles"
-                >
-                  <Trash2 className="w-2.5 h-2.5" />
-                  <span>Clear</span>
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-1 mt-0.5">
-                <button
-                  type="button"
-                  onClick={() => handlePreCacheRegion('persian_gulf')}
-                  disabled={isPreCaching || !isOnline}
-                  className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 rounded text-[8px] text-center border border-slate-700"
-                >
-                  ⬇️ Pre-cache Persian Gulf
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handlePreCacheRegion('caspian_sea')}
-                  disabled={isPreCaching || !isOnline}
-                  className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 rounded text-[8px] text-center border border-slate-700"
-                >
-                  ⬇️ Pre-cache Caspian Sea
-                </button>
-              </div>
-            </div>
-
-            {/* Provider List when High-Res Tiles */}
+            {/* Provider Options when High-Res */}
             {mapMode === 'high_res' && (
-              <div className="mt-1 flex flex-col gap-1.5">
-                <span className="text-[9px] text-slate-400 uppercase font-bold">Tile Provider & Imagery:</span>
-                {LIVE_TILE_PROVIDERS.map((prov) => (
-                  <button
-                    key={prov.id}
-                    type="button"
-                    onClick={() => setLiveProvider(prov.id)}
-                    className={`px-2.5 py-1.5 rounded-lg text-left transition-all text-[11px] flex flex-col gap-0.5 ${
-                      liveProvider === prov.id
-                        ? 'bg-slate-800 border border-cyan-400 text-cyan-300 shadow-sm'
-                        : 'bg-slate-950/60 border border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="font-bold text-white">{prov.name}</span>
-                      {prov.badge && (
-                        <span className="text-[8px] px-1.5 py-0.2 bg-emerald-950/90 text-emerald-300 border border-emerald-600/50 rounded font-bold">
-                          {prov.badge}
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-[9px] text-slate-400 leading-tight">{prov.description}</span>
-                  </button>
-                ))}
-
-                {/* Custom URL Input if Custom Provider is selected */}
-                {liveProvider === 'custom' && (
-                  <div className="p-2 rounded-lg bg-slate-950 border border-cyan-500/40 flex flex-col gap-1.5 mt-1">
-                    <span className="text-[9px] font-bold text-cyan-300">Custom Tile URL Template:</span>
-                    <input
-                      type="text"
-                      value={customTileUrlInput}
-                      onChange={(e) => {
-                        setCustomTileUrlInput(e.target.value);
-                        saveCustomTileUrl(e.target.value);
-                      }}
-                      placeholder="https://tile.example.com/{z}/{x}/{y}.png"
-                      className="px-2 py-1 bg-slate-900 border border-slate-700 rounded text-[10px] text-white font-mono focus:border-cyan-400 focus:outline-none"
-                    />
-                    <span className="text-[8px] text-slate-500">Supports variables: &#123;z&#125;, &#123;x&#125;, &#123;y&#125;, &#123;s&#125;</span>
-                  </div>
-                )}
-
-                <label className="flex items-center justify-between gap-2 mt-1 cursor-pointer pt-1 border-t border-slate-800 text-[11px] hover:text-cyan-400">
-                  <span className="flex items-center gap-1.5">
-                    <Anchor className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>OpenSeaMap Seamarks Layer</span>
-                  </span>
-                  <input 
-                    type="checkbox" 
-                    checked={showLiveSeamarks} 
-                    onChange={(e) => setShowLiveSeamarks(e.target.checked)} 
-                    className="rounded accent-cyan-500"
-                  />
-                </label>
+              <div className="flex flex-col gap-1 mt-1">
+                <span className="text-[9px] text-slate-400 font-bold">Satellite Imagery Source:</span>
+                <div className="grid grid-cols-1 gap-1">
+                  {LIVE_TILE_PROVIDERS.slice(0, 4).map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setLiveProvider(p.id)}
+                      className={`px-2.5 py-1.5 rounded-lg text-left transition-all text-[10px] flex items-center justify-between ${
+                        liveProvider === p.id
+                          ? 'bg-cyan-950 border border-cyan-400 text-cyan-200 font-bold'
+                          : 'bg-slate-950/60 border border-slate-800 text-slate-400 hover:bg-slate-800'
+                      }`}
+                    >
+                      <span>{p.name}</span>
+                      <span className="text-[8px] opacity-80 font-mono">{p.badge}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>
 
-          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider pb-1 border-b border-slate-800">
-            Nautical & Chart Layers
+          {/* 2. Nautical Feature Layers */}
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[10px] font-bold text-slate-300">Nautical Features & Overlays:</span>
+
+            {/* User Custom Flags Layer */}
+            <label className="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-pink-950/30 border border-pink-500/30 cursor-pointer hover:bg-pink-950/50">
+              <span className="flex items-center gap-1.5 text-pink-300 font-bold text-[11px]">
+                <Flag className="w-3.5 h-3.5 text-pink-400" />
+                <span>Chart Flag Marks (User Flags)</span>
+              </span>
+              <input 
+                type="checkbox" 
+                checked={showUserTags} 
+                onChange={(e) => setShowUserTags(e.target.checked)} 
+                className="rounded accent-pink-500"
+              />
+            </label>
+
+            {/* Buoys */}
+            <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400 text-[11px]">
+              <span className="flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Navigation Buoys & Marks (IALA)</span>
+              </span>
+              <input 
+                type="checkbox" 
+                checked={showBuoys} 
+                onChange={(e) => setShowBuoys(e.target.checked)} 
+                className="rounded accent-cyan-500"
+              />
+            </label>
+
+            {/* OpenSeaMap Seamarks */}
+            {mapMode === 'high_res' && (
+              <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400 text-[11px]">
+                <span className="flex items-center gap-1.5">
+                  <Anchor className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>OpenSeaMap Hydrographic Seamarks</span>
+                </span>
+                <input 
+                  type="checkbox" 
+                  checked={showLiveSeamarks} 
+                  onChange={(e) => setShowLiveSeamarks(e.target.checked)} 
+                  className="rounded accent-cyan-500"
+                />
+              </label>
+            )}
+
+            {/* Oil Rigs */}
+            <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400 text-[11px]">
+              <span className="flex items-center gap-1.5">
+                <Flame className="w-3.5 h-3.5 text-amber-400" />
+                <span>Offshore Oil & Gas Platforms</span>
+              </span>
+              <input 
+                type="checkbox" 
+                checked={showOilPlatforms} 
+                onChange={(e) => setShowOilPlatforms(e.target.checked)} 
+                className="rounded accent-cyan-500"
+              />
+            </label>
+
+            {/* Lighthouses */}
+            <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400 text-[11px]">
+              <span className="flex items-center gap-1.5">
+                <Radio className="w-3.5 h-3.5 text-yellow-400" />
+                <span>Lighthouses & Light Beacons</span>
+              </span>
+              <input 
+                type="checkbox" 
+                checked={showLighthouses} 
+                onChange={(e) => setShowLighthouses(e.target.checked)} 
+                className="rounded accent-cyan-500"
+              />
+            </label>
+
+            {/* TSS Shipping Lanes */}
+            <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400 text-[11px]">
+              <span className="flex items-center gap-1.5">
+                <Navigation className="w-3.5 h-3.5 text-fuchsia-400" />
+                <span>Traffic Separation Schemes (TSS)</span>
+              </span>
+              <input 
+                type="checkbox" 
+                checked={showShippingLanes} 
+                onChange={(e) => setShowShippingLanes(e.target.checked)} 
+                className="rounded accent-cyan-500"
+              />
+            </label>
+
+            {/* Submarine Pipelines */}
+            <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400 text-[11px]">
+              <span className="flex items-center gap-1.5">
+                <Activity className="w-3.5 h-3.5 text-rose-400" />
+                <span>Submarine Pipelines & Power Cables</span>
+              </span>
+              <input 
+                type="checkbox" 
+                checked={showPipelines} 
+                onChange={(e) => setShowPipelines(e.target.checked)} 
+                className="rounded accent-cyan-500"
+              />
+            </label>
+
+            {/* Depth Soundings */}
+            <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400 text-[11px]">
+              <span className="flex items-center gap-1.5">
+                <Crosshair className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Depth Soundings (Bathymetric)</span>
+              </span>
+              <input 
+                type="checkbox" 
+                checked={showSoundings} 
+                onChange={(e) => setShowSoundings(e.target.checked)} 
+                className="rounded accent-cyan-500"
+              />
+            </label>
+
+            {/* Bathymetry */}
+            <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400 text-[11px]">
+              <span className="flex items-center gap-1.5">
+                <Waves className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Depth Contours & Gradient Fills</span>
+              </span>
+              <input 
+                type="checkbox" 
+                checked={showBathymetry} 
+                onChange={(e) => setShowBathymetry(e.target.checked)} 
+                className="rounded accent-cyan-500"
+              />
+            </label>
+
+            {/* Graticule */}
+            <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400 text-[11px]">
+              <span className="flex items-center gap-1.5">
+                <Compass className="w-3.5 h-3.5 text-slate-400" />
+                <span>Geographic Graticule (Lat/Lon Grid)</span>
+              </span>
+              <input 
+                type="checkbox" 
+                checked={showGraticule} 
+                onChange={(e) => setShowGraticule(e.target.checked)} 
+                className="rounded accent-cyan-500"
+              />
+            </label>
+
+            {/* Range Rings */}
+            <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400 text-[11px]">
+              <span className="flex items-center gap-1.5">
+                <Navigation2 className="w-3.5 h-3.5 text-slate-400" />
+                <span>Vessel Range Rings</span>
+              </span>
+              <input 
+                type="checkbox" 
+                checked={showRangeRings} 
+                onChange={(e) => setShowRangeRings(e.target.checked)} 
+                className="rounded accent-cyan-500"
+              />
+            </label>
           </div>
 
-          {/* Oil Platforms */}
-          <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400">
-            <span className="flex items-center gap-1.5">
-              <Flame className="w-3.5 h-3.5 text-amber-400" />
-              <span>Offshore Oil & Gas Rigs</span>
-            </span>
-            <input 
-              type="checkbox" 
-              checked={showOilPlatforms} 
-              onChange={(e) => setShowOilPlatforms(e.target.checked)} 
-              className="rounded accent-cyan-500"
-            />
-          </label>
-
-          {/* Navigation Buoys */}
-          <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400">
-            <span className="flex items-center gap-1.5">
-              <Zap className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Navigation Buoys (IALA)</span>
-            </span>
-            <input 
-              type="checkbox" 
-              checked={showBuoys} 
-              onChange={(e) => setShowBuoys(e.target.checked)} 
-              className="rounded accent-cyan-500"
-            />
-          </label>
-
-          {/* Submarine Pipelines */}
-          <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400">
-            <span className="flex items-center gap-1.5">
-              <Activity className="w-3.5 h-3.5 text-fuchsia-400" />
-              <span>Submarine Pipelines & Cables</span>
-            </span>
-            <input 
-              type="checkbox" 
-              checked={showPipelines} 
-              onChange={(e) => setShowPipelines(e.target.checked)} 
-              className="rounded accent-cyan-500"
-            />
-          </label>
-
-          {/* Tidal Stream Vectors */}
-          <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400">
-            <span className="flex items-center gap-1.5">
-              <Wind className="w-3.5 h-3.5 text-sky-400" />
-              <span>Tidal Streams & Currents</span>
-            </span>
-            <input 
-              type="checkbox" 
-              checked={showTidalStreams} 
-              onChange={(e) => setShowTidalStreams(e.target.checked)} 
-              className="rounded accent-cyan-500"
-            />
-          </label>
-
-          {/* Capitals and Cities */}
-          <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400">
-            <span className="flex items-center gap-1.5">
-              <Tag className="w-3.5 h-3.5 text-amber-400" />
-              <span>Capitals, Ports & Major Cities</span>
-            </span>
-            <input 
-              type="checkbox" 
-              checked={showPlaceLabels} 
-              onChange={(e) => setShowPlaceLabels(e.target.checked)} 
-              className="rounded accent-cyan-500"
-            />
-          </label>
-
-          {/* Lighthouses */}
-          <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400">
-            <span className="flex items-center gap-1.5">
-              <Radio className="w-3.5 h-3.5 text-yellow-400" />
-              <span>Lighthouses & Beacons</span>
-            </span>
-            <input 
-              type="checkbox" 
-              checked={showLighthouses} 
-              onChange={(e) => setShowLighthouses(e.target.checked)} 
-              className="rounded accent-cyan-500"
-            />
-          </label>
-
-          {/* TSS Lanes */}
-          <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400">
-            <span className="flex items-center gap-1.5">
-              <Navigation className="w-3.5 h-3.5 text-fuchsia-400" />
-              <span>Traffic Separation Schemes (TSS)</span>
-            </span>
-            <input 
-              type="checkbox" 
-              checked={showShippingLanes} 
-              onChange={(e) => setShowShippingLanes(e.target.checked)} 
-              className="rounded accent-cyan-500"
-            />
-          </label>
-
-          {/* Anchorages */}
-          <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400">
-            <span className="flex items-center gap-1.5">
-              <Anchor className="w-3.5 h-3.5 text-teal-400" />
-              <span>Designated Anchorages</span>
-            </span>
-            <input 
-              type="checkbox" 
-              checked={showAnchorages} 
-              onChange={(e) => setShowAnchorages(e.target.checked)} 
-              className="rounded accent-cyan-500"
-            />
-          </label>
-
-          {/* Marine Hazards */}
-          <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400">
-            <span className="flex items-center gap-1.5">
-              <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
-              <span>Marine Hazards & Wrecks</span>
-            </span>
-            <input 
-              type="checkbox" 
-              checked={showHazards} 
-              onChange={(e) => setShowHazards(e.target.checked)} 
-              className="rounded accent-cyan-500"
-            />
-          </label>
-
-          {/* Soundings */}
-          <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400">
-            <span className="flex items-center gap-1.5">
-              <Crosshair className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Depth Soundings (Meters)</span>
-            </span>
-            <input 
-              type="checkbox" 
-              checked={showSoundings} 
-              onChange={(e) => setShowSoundings(e.target.checked)} 
-              className="rounded accent-cyan-500"
-            />
-          </label>
-
-          {/* Bathymetry */}
-          <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400">
-            <span className="flex items-center gap-1.5">
-              <Waves className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Bathymetry Depth Zones</span>
-            </span>
-            <input 
-              type="checkbox" 
-              checked={showBathymetry} 
-              onChange={(e) => setShowBathymetry(e.target.checked)} 
-              className="rounded accent-cyan-500"
-            />
-          </label>
-
-          {/* Graticule */}
-          <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400">
-            <span className="flex items-center gap-1.5">
-              <Compass className="w-3.5 h-3.5 text-slate-400" />
-              <span>Geographic Graticule (Lat/Lon)</span>
-            </span>
-            <input 
-              type="checkbox" 
-              checked={showGraticule} 
-              onChange={(e) => setShowGraticule(e.target.checked)} 
-              className="rounded accent-cyan-500"
-            />
-          </label>
-
-          {/* Range Rings */}
-          <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-400">
-            <span className="flex items-center gap-1.5">
-              <Navigation2 className="w-3.5 h-3.5 text-slate-400" />
-              <span>Vessel Range Rings (NM)</span>
-            </span>
-            <input 
-              type="checkbox" 
-              checked={showRangeRings} 
-              onChange={(e) => setShowRangeRings(e.target.checked)} 
-              className="rounded accent-cyan-500"
-            />
-          </label>
+          {/* Quick link to Working Area Downloader */}
+          <div className="pt-2 border-t border-slate-800">
+            <button
+              type="button"
+              onClick={() => {
+                setShowLayersMenu(false);
+                setIsWorkingAreaModalOpen(true);
+              }}
+              className="w-full py-2 px-3 rounded-xl bg-emerald-600/90 hover:bg-emerald-500 active:scale-95 text-white font-bold text-[11px] flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-950/40 transition-all"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Download Working Area (Offline Storage)</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -3445,6 +3407,45 @@ function drawSmoothPolygon(
           Zoom: {zoom.toFixed(0)}x • {mapMode === 'high_res' ? `🛰️ High-Res Tiles (${cacheStats.count} cached)` : '📡 Vector Nautical Chart'}
         </div>
       )}
+
+      {/* Download Working Area Modal */}
+      <WorkingAreaModal
+        isOpen={isWorkingAreaModalOpen}
+        onClose={() => setIsWorkingAreaModalOpen(false)}
+        gps={gps}
+        currentCenter={center}
+        currentZoom={zoom}
+        viewportBounds={{
+          minLon: canvasToGeo(0, 0, 800, 600).lon,
+          maxLon: canvasToGeo(800, 600, 800, 600).lon,
+          minLat: canvasToGeo(0, 600, 800, 600).lat,
+          maxLat: canvasToGeo(800, 0, 800, 600).lat,
+        }}
+        activeProvider={liveProvider}
+        onProviderChange={(p) => setLiveProvider(p)}
+        isNightMode={isNightMode}
+        onDownloadComplete={() => {
+          setMapMode('high_res');
+          triggerTileRedraw();
+        }}
+      />
+
+      {/* User Custom Tag Modal */}
+      <UserTagModal
+        isOpen={isTagModalOpen}
+        onClose={() => {
+          setIsTagModalOpen(false);
+          setTagToEdit(null);
+          setTagInitialCoords(null);
+        }}
+        tagToEdit={tagToEdit}
+        initialCoords={tagInitialCoords}
+        gps={gps}
+        onSaveTag={handleSaveUserTag}
+        onDeleteTag={handleDeleteUserTag}
+        onNavigateToTag={handleNavigateToUserTag}
+        isNightMode={isNightMode}
+      />
     </div>
   );
 

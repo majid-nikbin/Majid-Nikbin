@@ -181,7 +181,7 @@ export const Header: React.FC<HeaderProps> = ({
       setDevPinError(null);
       showToastMessage('✓ Developer Mode Active');
     } else {
-      setDevPinError('رمز عبور نامعتبر است');
+      setDevPinError('Invalid passcode');
     }
   };
 
@@ -565,10 +565,10 @@ export const Header: React.FC<HeaderProps> = ({
                     }
                   }}
                   className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 rounded-lg text-xs font-bold text-amber-300 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-                  title="صفحه برنامه در مایکت"
+                  title="Application Store Page"
                 >
                   <ShoppingCart className="w-3.5 h-3.5 text-amber-400" />
-                  <span>مایکت (Myket)</span>
+                  <span>Myket Store</span>
                   <ExternalLink className="w-3 h-3 text-amber-400/80" />
                 </button>
               </div>

@@ -139,7 +139,7 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
     setOtgKeyError(null);
     const key = otgKeyInput.trim();
     if (!key) {
-      setOtgKeyError('لطفاً کد فعال‌سازی یا PIN دولوپر را وارد کنید');
+      setOtgKeyError('Please enter an activation key or developer PIN');
       return;
     }
     const success = activateOtgLicense(key);
@@ -152,7 +152,7 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
         setOtgKeyInput('');
       }, 1500);
     } else {
-      setOtgKeyError('کد یا PIN وارد شده نامعتبر است. لطفاً از مایکت خرید کنید یا با پشتیبانی تماس بگیرید.');
+      setOtgKeyError('Invalid key or PIN. Please purchase via Myket or contact support.');
     }
   };
 
@@ -374,10 +374,10 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
             <Clock className="w-5 h-5 text-amber-400 shrink-0 mt-0.5 sm:mt-0 animate-pulse" />
             <div className="flex flex-col gap-0.5">
               <span className="font-bold text-amber-300">
-                ⚠️ مهلت استفاده از پورت OTG تا ۱ ماه آینده ({otgLicense.daysRemaining} روز دیگر) منقضی می‌شود.
+                ⚠️ OTG hardware access trial expires in 1 month ({otgLicense.daysRemaining} days remaining).
               </span>
               <span className="text-[11px] text-amber-200/80">
-                برای ادامه اتصال و تبادل دیتا با سخت‌افزار، لطفاً برنامه را از طریق مایکت خریداری فرمایید.
+                To continue physical hardware connectivity and NMEA data exchange, please upgrade via Myket.
               </span>
             </div>
           </div>
@@ -388,15 +388,15 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
               className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg flex items-center gap-1.5 shadow transition-all active:scale-95"
             >
               <ShoppingCart className="w-3.5 h-3.5" />
-              <span>خرید از مایکت</span>
+              <span>Purchase via Myket</span>
             </button>
             <button
               type="button"
               onClick={handleDismissWarning}
               className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 transition-colors"
-              title="مخفی کردن موقت این پیام"
+              title="Dismiss this notification"
             >
-              متوجه شدم
+              Dismiss
             </button>
           </div>
         </div>
@@ -409,10 +409,10 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
             <Lock className="w-5 h-5 text-rose-400 shrink-0" />
             <div className="flex flex-col gap-0.5">
               <span className="font-bold text-rose-200">
-                🔒 مهلت ۶ ماهه استفاده رایگان از پورت OTG به پایان رسیده است.
+                🔒 6-Month Free OTG Trial Period Has Expired.
               </span>
               <span className="text-[11px] text-rose-300/80">
-                جهت برقراری اتصال به پورت سریال، لطفاً نسخه فعال شده را از مایکت خریداری فرمایید.
+                To connect USB serial cables and stream NMEA data, please unlock the full version from Myket.
               </span>
             </div>
           </div>
@@ -422,7 +422,7 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
             className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-lg flex items-center gap-1.5 shadow-lg transition-all active:scale-95 self-end sm:self-auto"
           >
             <ShoppingCart className="w-3.5 h-3.5" />
-            <span>خرید لایسنس از مایکت</span>
+            <span>Unlock License</span>
           </button>
         </div>
       )}
@@ -504,7 +504,7 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
                 <ShoppingCart className="w-5 h-5 text-amber-400" />
-                <span>خرید لایسنس اتصال OTG از مایکت</span>
+                <span>OTG Hardware Connection License</span>
               </div>
               <button
                 type="button"
@@ -519,11 +519,11 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
             <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 flex flex-col gap-2.5">
               <div className="flex items-center gap-2 text-rose-400 text-xs font-bold">
                 <Lock className="w-4 h-4 shrink-0" />
-                <span>مهلت استفاده آزمایشی از پورت OTG به پایان رسیده است</span>
+                <span>Trial period for USB OTG connection has expired</span>
               </div>
-              <p className="text-xs text-slate-300 leading-relaxed font-sans text-right" dir="rtl">
-                امکان اتصال فیزیکی به کابل OTG و ارسال داده‌های NMEA به دستگاه‌های ناوبری جانبی نیاز به فعال‌سازی از مایکت دارد.
-                بخش‌های نقشه، موقعیت‌یابی ماهواره‌ای، روت‌بندی و قطب‌نما همچنان برای شما به‌صورت ۱۰۰٪ رایگان فعال باقی می‌مانند.
+              <p className="text-xs text-slate-300 leading-relaxed font-sans text-left" dir="ltr">
+                Physical connection to USB OTG serial hardware and streaming NMEA data requires a license.
+                Chart navigation, GPS satellite positioning, routes, and magnetic compass remain 100% free forever.
               </p>
             </div>
 
@@ -535,7 +535,7 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
                 className="w-full py-3 px-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-amber-950/50 transition-all active:scale-98 cursor-pointer"
               >
                 <ShoppingCart className="w-4 h-4" />
-                <span>خرید و تمدید لایسنس از مایکت (Myket)</span>
+                <span>Purchase License via Myket</span>
                 <ExternalLink className="w-3.5 h-3.5 opacity-80" />
               </button>
 
@@ -545,7 +545,7 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
                 className="w-full py-2 px-3 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/60 text-emerald-300 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer"
               >
                 <Check className="w-3.5 h-3.5 text-emerald-400" />
-                <span>خرید را در مایکت انجام دادم (ثبت و فعال‌سازی دائمی)</span>
+                <span>Confirm Purchase (Activate Lifetime Access)</span>
               </button>
             </div>
 
@@ -553,7 +553,7 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
             <form onSubmit={handleActivateOtgKey} className="pt-3 border-t border-slate-800 flex flex-col gap-2">
               <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
                 <KeyRound className="w-3 h-3 text-cyan-400" />
-                <span>کد فعال‌سازی دارید؟</span>
+                <span>Have an activation key or PIN?</span>
               </span>
               <div className="flex gap-2">
                 <input
@@ -563,14 +563,14 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
                     setOtgKeyInput(e.target.value);
                     setOtgKeyError(null);
                   }}
-                  placeholder="کد فعال‌سازی را وارد نمایید"
+                  placeholder="Enter activation key or passcode"
                   className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono outline-none focus:border-cyan-400"
                 />
                 <button
                   type="submit"
                   className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 font-bold text-xs rounded-lg border border-slate-700 transition-colors shrink-0 cursor-pointer"
                 >
-                  فعال‌سازی
+                  Activate
                 </button>
               </div>
               {otgKeyError && (
@@ -579,7 +579,7 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
               {otgKeySuccess && (
                 <span className="text-[11px] text-emerald-400 font-mono font-bold flex items-center gap-1">
                   <Check className="w-3 h-3" />
-                  اتصال OTG با موفقیت به صورت دائمی فعال گردید!
+                  OTG connection successfully activated!
                 </span>
               )}
             </form>
@@ -591,7 +591,7 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
                 onClick={() => setShowMyketModal(false)}
                 className="px-4 py-1.5 bg-slate-800 hover:bg-slate-755 text-slate-400 text-xs rounded-lg"
               >
-                بستن
+                Close
               </button>
             </div>
           </div>

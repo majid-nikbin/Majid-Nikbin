@@ -134,3 +134,28 @@ export interface NavigationSession {
   startedAt: number | null;
 }
 
+export interface UserTag {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  color: string; // Vibrant distinctive hex color (e.g. #ec4899 fuchsia, #f59e0b neon gold, #a3e635 lime, #06b6d4 cyan, #a855f7 purple)
+  notes?: string;
+  category?: 'fishing' | 'anchorage' | 'hazard' | 'harbor' | 'general';
+  createdAt: number;
+}
+
+export interface WorkingAreaRecord {
+  id: string;
+  name: string;
+  provider: string;
+  minLon: number;
+  maxLon: number;
+  minLat: number;
+  maxLat: number;
+  minZoom: number;
+  maxZoom: number;
+  tileCount: number;
+  downloadedAt: number;
+}
+

@@ -53,30 +53,30 @@ export const KeyGenTab: React.FC<KeyGenTabProps> = ({ isNightMode }) => {
   const handleSimulateNormal = () => {
     deactivateLicense();
     simulateAppAgeDays(10);
-    refreshOtgStatus('وضعیت: روز ۱۰ (آزمایشی عادی ۶ ماهه فعال)');
+    refreshOtgStatus('Status: Day 10 (Trial Active & Connected)');
   };
 
   const handleSimulate5Months = () => {
     deactivateLicense();
     simulateAppAgeDays(155);
-    refreshOtgStatus('وضعیت: روز ۱۵۵ (پیام هشدار مهلت ۵ ماهه ظاهر شد)');
+    refreshOtgStatus('Status: Day 155 (5-Month Grace Warning Displayed)');
   };
 
   const handleSimulate6MonthsExpired = () => {
     deactivateLicense();
     simulateAppAgeDays(185);
-    refreshOtgStatus('وضعیت: روز ۱۸۵ (مهلت ۶ ماهه منقضی شد و قفل خرید مایکت فعال شد)');
+    refreshOtgStatus('Status: Day 185 (6-Month Trial Expired - Lock Active)');
   };
 
   const handleSimulateMyketPurchase = () => {
     activateViaMyket();
-    refreshOtgStatus('وضعیت: خرید مایکت شبیه‌سازی شد و لایسنس دائمی فعال گردید');
+    refreshOtgStatus('Status: Store Purchase Simulated - Lifetime License Active');
   };
 
   const handleResetAll = () => {
     deactivateLicense();
     simulateAppAgeDays(0);
-    refreshOtgStatus('همه چیز به روز اول بازنشانی شد.');
+    refreshOtgStatus('All license and trial settings reset to Day 0.');
   };
 
   const handleGenerate = (e: React.FormEvent) => {
@@ -254,15 +254,15 @@ export const KeyGenTab: React.FC<KeyGenTabProps> = ({ isNightMode }) => {
             <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
               <span className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center gap-2">
                 <ShieldAlert className="w-4 h-4 text-amber-400" />
-                شبیه‌ساز تست مهلت ۶ ماهه و خرید مایکت (Sandbox Testing)
+                6-Month Trial & In-App Purchase Simulator (Sandbox Testing)
               </span>
               <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800">
                 Dev Tool
               </span>
             </div>
 
-            <p className="text-xs text-slate-300 leading-relaxed font-sans" dir="rtl">
-              از این دکمه‌ها می‌توانید برای تست آنی تمام وضعیت‌های مهلت ۶ ماهه پورت OTG و باز شدن خودکار پنجره خرید مایکت بدون نیاز به گذشت چند ماه استفاده کنید:
+            <p className="text-xs text-slate-300 leading-relaxed font-sans text-left" dir="ltr">
+              Use these buttons to instantly simulate and verify all 6-month trial lifecycle states and purchase popups without waiting months:
             </p>
 
             {simMessage && (
@@ -278,7 +278,7 @@ export const KeyGenTab: React.FC<KeyGenTabProps> = ({ isNightMode }) => {
                 className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 border border-slate-700 text-slate-200 flex items-center gap-2 transition-all active:scale-95"
               >
                 <Play className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span className="text-left font-sans text-xs">۱. حالت عادی (روز ۱۰ - فعال)</span>
+                <span className="text-left font-sans text-xs">1. Normal Active (Day 10)</span>
               </button>
 
               <button
@@ -287,7 +287,7 @@ export const KeyGenTab: React.FC<KeyGenTabProps> = ({ isNightMode }) => {
                 className="p-2.5 rounded-xl bg-amber-950/60 hover:bg-amber-900/60 border border-amber-500/60 text-amber-200 flex items-center gap-2 transition-all active:scale-95"
               >
                 <Clock className="w-4 h-4 text-amber-400 shrink-0" />
-                <span className="text-left font-sans text-xs">۲. حالت ۵ ماه (پیام هشدار منقضی شدن)</span>
+                <span className="text-left font-sans text-xs">2. Day 155 (Grace Warning Banner)</span>
               </button>
 
               <button
@@ -296,7 +296,7 @@ export const KeyGenTab: React.FC<KeyGenTabProps> = ({ isNightMode }) => {
                 className="p-2.5 rounded-xl bg-rose-950/70 hover:bg-rose-900/70 border border-rose-500 text-rose-200 flex items-center gap-2 transition-all active:scale-95"
               >
                 <Lock className="w-4 h-4 text-rose-400 shrink-0" />
-                <span className="text-left font-sans text-xs">۳. حالت ۶ ماه (قفل و مودال خرید مایکت)</span>
+                <span className="text-left font-sans text-xs">3. Day 185 (Trial Expired & Locked)</span>
               </button>
 
               <button
@@ -305,19 +305,19 @@ export const KeyGenTab: React.FC<KeyGenTabProps> = ({ isNightMode }) => {
                 className="p-2.5 rounded-xl bg-cyan-950/80 hover:bg-cyan-900/80 border border-cyan-500 text-cyan-200 flex items-center gap-2 transition-all active:scale-95"
               >
                 <ShoppingCart className="w-4 h-4 text-cyan-400 shrink-0" />
-                <span className="text-left font-sans text-xs">۴. شبیه‌سازی خرید موفق از مایکت</span>
+                <span className="text-left font-sans text-xs">4. Simulate Store Purchase</span>
               </button>
             </div>
 
             <div className="pt-2 border-t border-slate-800 flex justify-between items-center text-[11px] font-mono">
               <span className="text-slate-400">
-                وضعیت فعلی OTG: {otgStatus.isActivated ? 'دائمی فعال' : otgStatus.isExpired ? '🔒 منقضی شده (نیاز به مایکت)' : otgStatus.isWarningPeriod ? '⚠️ هشدار ۵ ماهه' : 'عادی'}
+                Current OTG Status: {otgStatus.isActivated ? 'Permanent Active' : otgStatus.isExpired ? '🔒 Expired (Purchase Required)' : otgStatus.isWarningPeriod ? '⚠️ 5-Month Warning' : 'Active Trial'}
               </span>
               <button
                 type="button"
                 onClick={handleResetAll}
                 className="px-2.5 py-1 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg flex items-center gap-1 transition-colors"
-                title="بازنشانی به روز اول نصب"
+                title="Reset to Day 0"
               >
                 <RotateCcw className="w-3 h-3" />
                 <span>Reset</span>
