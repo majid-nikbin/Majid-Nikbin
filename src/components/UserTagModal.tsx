@@ -49,8 +49,10 @@ export const UserTagModal: React.FC<UserTagModalProps> = ({
   const [color, setColor] = useState<string>('#ec4899');
   const [notes, setNotes] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<boolean>(false);
 
   useEffect(() => {
+    setConfirmDelete(false);
     if (tagToEdit) {
       setName(tagToEdit.name);
       setLat(tagToEdit.latitude);
@@ -123,13 +125,29 @@ export const UserTagModal: React.FC<UserTagModalProps> = ({
               </p>
             </div>
           </div>
-          <button 
-            type="button" 
-            onClick={onClose} 
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            {tagToEdit && (
+              <button 
+                type="button" 
+                onClick={() => {
+                  onDeleteTag(tagToEdit.id);
+                  onClose();
+                }} 
+                className="px-2.5 py-1.5 rounded-lg bg-rose-600/80 hover:bg-rose-500 text-white transition-all flex items-center gap-1 text-xs font-bold shadow-md shadow-rose-950/50 active:scale-95"
+                title="Delete this flag (حذف پرچم)"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Flag</span>
+              </button>
+            )}
+            <button 
+              type="button" 
+              onClick={onClose} 
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Form Body */}
@@ -231,21 +249,20 @@ export const UserTagModal: React.FC<UserTagModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className={`p-4 border-t flex items-center justify-between gap-2 ${
+        <div className={`p-4 border-t flex flex-wrap items-center justify-between gap-2 ${
           isNightMode ? 'border-red-900/80 bg-red-900/20' : 'border-slate-800 bg-slate-950/80'
         }`}>
           {tagToEdit ? (
             <button
               type="button"
               onClick={() => {
-                if (window.confirm('Delete this flag marker?')) {
-                  onDeleteTag(tagToEdit.id);
-                  onClose();
-                }
+                onDeleteTag(tagToEdit.id);
+                onClose();
               }}
-              className="px-3 py-2 rounded-xl bg-red-950/80 hover:bg-red-900 border border-red-700 text-red-300 text-xs font-bold flex items-center gap-1.5 transition-colors"
+              className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 active:scale-95 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-rose-950/60 transition-all"
+              title="Delete this flag marker"
             >
-              <Trash2 className="w-3.5 h-3.5" />
+              <Trash2 className="w-4 h-4" />
               <span>Delete Flag</span>
             </button>
           ) : (
@@ -260,9 +277,10 @@ export const UserTagModal: React.FC<UserTagModalProps> = ({
                   onNavigateToTag(tagToEdit);
                   onClose();
                 }}
-                className="px-3 py-2 rounded-xl bg-cyan-700 hover:bg-cyan-600 text-white text-xs font-bold flex items-center gap-1.5 transition-colors"
+                className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 active:scale-95 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-cyan-900/40 transition-all"
+                title="Start navigation to this flag position"
               >
-                <Navigation className="w-3.5 h-3.5" />
+                <Navigation className="w-3.5 h-3.5 fill-current" />
                 <span>Navigate to Flag</span>
               </button>
             )}

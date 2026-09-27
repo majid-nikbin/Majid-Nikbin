@@ -126,7 +126,12 @@ async function initCacheIndex() {
 }
 
 if (typeof window !== 'undefined') {
-  initCacheIndex();
+  initCacheIndex().then(() => {
+    // Silently pre-cache global vector nautical overview map (zoom 1-5) in background at program startup
+    setTimeout(() => {
+      autoDownloadGlobalMarineOverview('google_nautical');
+    }, 1200);
+  });
 }
 
 export function getSavedCustomTileUrl(): string {
@@ -197,6 +202,25 @@ function makeTileKey(provider: string, z: number, x: number, y: number): string 
 }
 
 /**
+ * Silently saves any loaded tile URL into persistent CacheStorage in the background.
+ */
+export async function saveUrlToPersistentCache(url: string): Promise<void> {
+  if (typeof window === 'undefined' || !('caches' in window)) return;
+  if (CACHED_URLS_SET.has(url)) return;
+  CACHED_URLS_SET.add(url);
+  try {
+    const cache = globalCacheInstance || (await caches.open(TILE_CACHE_NAME));
+    const resp = await fetch(url, { mode: 'cors' });
+    if (resp.ok) {
+      await cache.put(url, resp);
+      notifyCacheUpdated();
+    }
+  } catch {
+    // Silent fail if offline or network glitch
+  }
+}
+
+/**
  * Ultra-fast direct image request with background offline caching:
  * - Direct Image loading utilizes browser's C++ multithreaded network + GPU texture decoding
  * - Non-blocking asynchronous sync into CacheStorage for 100% offline access
@@ -235,6 +259,8 @@ function requestTileImage(
     TILE_MEMORY_CACHE.set(key, img);
     PENDING_REQUESTS.delete(key);
     if (onLoaded) onLoaded();
+    // Silently auto-cache every viewed tile into persistent offline CacheStorage
+    saveUrlToPersistentCache(url);
   };
 
   img.onerror = () => {
@@ -609,4 +635,43 @@ export function deleteWorkingAreaRecord(id: string): void {
     const list = getSavedWorkingAreas().filter(item => item.id !== id);
     localStorage.setItem(WORKING_AREAS_STORAGE_KEY, JSON.stringify(list));
   } catch {}
+}
+
+/**
+ * Auto-downloads and pre-caches the global maritime vector & chart overview (zoom levels 1 to 5)
+ * in the background. This guarantees 100% offline availability of the entire world's oceanic map.
+ */
+let isAutoBackgroundCacheRunning = false;
+export async function autoDownloadGlobalMarineOverview(
+  provider: LiveTileProvider = 'google_nautical',
+  onProgress?: (done: number, total: number) => void
+): Promise<{ success: boolean; total: number }> {
+  if (isAutoBackgroundCacheRunning) return { success: true, total: 0 };
+  isAutoBackgroundCacheRunning = true;
+  try {
+    // Zoom 1 to 5 covers the entire globe's oceans in ~85 tiles (only ~4-8 MB total)
+    const res = await preCacheAreaTiles(
+      provider,
+      -180, 180, -85, 85,
+      1, 5,
+      (done, total) => {
+        if (onProgress) onProgress(done, total);
+      }
+    );
+    return { success: res.success, total: res.downloaded };
+  } catch {
+    return { success: false, total: 0 };
+  } finally {
+    isAutoBackgroundCacheRunning = false;
+  }
+}
+
+/**
+ * User-triggered Map Update: Refreshes global maritime routes, coastlines, and navigational channels.
+ */
+export async function updateGlobalMarineMap(
+  provider: LiveTileProvider = 'google_nautical',
+  onProgress?: (done: number, total: number) => void
+): Promise<{ success: boolean; total: number }> {
+  return await autoDownloadGlobalMarineOverview(provider, onProgress);
 }

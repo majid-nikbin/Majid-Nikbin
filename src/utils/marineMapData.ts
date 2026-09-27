@@ -1468,22 +1468,12 @@ export const TIDAL_STREAM_VECTORS: TidalStreamVector[] = [
 // =========================================================================
 export const DEFAULT_SAMPLE_ROUTES = [
   {
-    id: 'route_kish_island',
-    name: 'Kish Island',
-    description: 'Kish Island marine navigation route. Add more waypoints or create new routes.',
+    id: 'route_1',
+    name: 'Route 1',
+    description: 'Default voyage route. Double-click on chart in Waypoint Mode to add waypoints.',
     color: '#06b6d4', // Cyan
-    createdAt: Date.now() - 86400000,
-    updatedAt: Date.now() - 86400000,
-    waypoints: [
-      {
-        id: 'wp_kish_harbor',
-        name: 'Kish Port Fairway',
-        latitude: 26.5540,
-        longitude: 54.0150,
-        description: 'Main passenger & commercial port fairway entrance of Kish Island',
-        order: 0,
-        createdAt: Date.now() - 86400000
-      }
-    ]
+    createdAt: 1700000000000,
+    updatedAt: 1700000000000,
+    waypoints: []
   }
 ];

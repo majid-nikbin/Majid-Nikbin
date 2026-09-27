@@ -65,8 +65,8 @@ interface RouteNavigationTabProps {
   onNavSessionChange?: (session: NavigationSession) => void;
 }
 
-const STORAGE_KEY_ROUTES = 'mariner_pro_marine_routes_v2';
-const STORAGE_KEY_ACTIVE_ROUTE_ID = 'mariner_pro_active_route_id_v2';
+const STORAGE_KEY_ROUTES = 'mariner_pro_marine_routes_v4';
+const STORAGE_KEY_ACTIVE_ROUTE_ID = 'mariner_pro_active_route_id_v4';
 const STORAGE_KEY_NAV_SESSION = 'mariner_pro_active_nav_session_v2';
 const STORAGE_KEY_TARGET_WP_ID = 'mariner_pro_active_target_wp_id_v2';
 
@@ -76,7 +76,7 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
   isNightMode = false,
   onNavSessionChange,
 }) => {
-  // Routes State loaded from LocalStorage
+  // Routes State loaded from LocalStorage (Defaults to only one route: "Route 1" with 0 waypoints)
   const [routes, setRoutes] = useState<MarineRoute[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_ROUTES);
@@ -95,7 +95,7 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
       const savedId = localStorage.getItem(STORAGE_KEY_ACTIVE_ROUTE_ID);
       if (savedId && routes.some(r => r.id === savedId)) return savedId;
     } catch (e) {}
-    return routes[0]?.id || '';
+    return routes[0]?.id || 'route_1';
   });
 
   // Save routes to localStorage
@@ -593,8 +593,8 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
     let currentRoute = activeRoute;
     if (!currentRoute) {
       const newRoute: MarineRoute = {
-        id: `route_${Date.now()}`,
-        name: 'Voyage Route 1',
+        id: `route_1`,
+        name: 'Route 1',
         color: '#06b6d4',
         waypoints: [],
         createdAt: Date.now(),
@@ -623,13 +623,15 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
     const updatedWaypoints = [...currentRoute.waypoints, newWp];
     setRoutes(prev => prev.map(r => r.id === currentRoute!.id ? { ...r, waypoints: updatedWaypoints, updatedAt: Date.now() } : r));
 
-    // Show navigation track immediately from origin/vessel to this point or along the route
-    if (!targetWaypointId || !navSession.isNavigating) {
+    // Update targetWaypointId if not set yet so destination distance displays cleanly
+    if (!targetWaypointId) {
       setTargetWaypointId(newWp.id);
-      handleStartNavigation(newWp);
     }
 
-    showToast(`Waypoint ${newWp.name} added (${updatedWaypoints.length}/50)`, 'success');
+    // Keep isMapPickMode active! User can add as many waypoints as desired with successive double-clicks.
+    // To exit waypoint mode, user clicks the waypoint icon on the right (or banner close).
+
+    showToast(`Waypoint ${newWp.name} added to "${currentRoute.name}" (${updatedWaypoints.length}/50)`, 'success');
   };
 
   const handleClearLastWaypoint = () => {
@@ -728,16 +730,38 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
     );
   };
 
-  const handleStartNavigation = (selectedWp?: Waypoint) => {
-    const wp = selectedWp || targetWaypoint;
+  const handleStartNavigation = (selectedWp?: Waypoint | { id?: string; name: string; latitude: number; longitude: number }) => {
+    let wp: Waypoint | null = null;
+    if (selectedWp) {
+      if ('createdAt' in selectedWp && selectedWp.id) {
+        wp = selectedWp as Waypoint;
+      } else {
+        // Ephemeral target for Flag navigation WITHOUT inserting unwanted waypoints into the route
+        wp = {
+          id: selectedWp.id || `flag_dest_${Date.now()}`,
+          name: selectedWp.name || 'Flag Destination',
+          latitude: selectedWp.latitude,
+          longitude: selectedWp.longitude,
+          order: 0,
+          createdAt: Date.now(),
+        };
+      }
+    } else {
+      wp = targetWaypoint;
+    }
+
     if (!wp) {
-      showToast('Please select a destination Waypoint first.', 'warn');
+      if (activeRoute && sortedWaypoints.length > 0) {
+        handleStartRouteNavigation(0);
+        return;
+      }
+      showToast('Please select a destination Waypoint or Flag first.', 'warn');
       return;
     }
 
     // If this waypoint belongs to the active route, start route navigation from this waypoint index
     if (activeRoute && sortedWaypoints.length > 0) {
-      const idx = sortedWaypoints.findIndex(w => w.id === wp.id);
+      const idx = sortedWaypoints.findIndex(w => w.id === wp!.id);
       if (idx >= 0) {
         handleStartRouteNavigation(idx);
         return;
@@ -1344,6 +1368,8 @@ export const RouteNavigationTab: React.FC<RouteNavigationTabProps> = ({
             setTargetWaypointId(wp.id);
             handleStartNavigation(wp);
           }}
+          onStartNavigation={handleStartNavigation}
+          onStopNavigation={handleStopNavigation}
           headingMode={headingMode}
           onHeadingModeChange={handleHeadingModeChange}
         />

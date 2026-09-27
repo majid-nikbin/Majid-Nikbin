@@ -37,7 +37,9 @@ import {
   CheckCircle2,
   Database,
   Search,
-  Sparkles
+  Sparkles,
+  Square,
+  RefreshCw
 } from 'lucide-react';
 import { GpsData, CompassData, MarineRoute, Waypoint, NavigationSession, UserTag, WorkingAreaRecord } from '../types';
 import { WorkingAreaModal } from './WorkingAreaModal';
@@ -78,7 +80,9 @@ import {
   getCachedTileStats,
   clearTileCache,
   preCacheAreaTiles,
-  subscribeTileCacheUpdates
+  subscribeTileCacheUpdates,
+  autoDownloadGlobalMarineOverview,
+  updateGlobalMarineMap
 } from '../utils/marineTileLoader';
 
 interface OfflineMarineChartProps {
@@ -93,6 +97,8 @@ interface OfflineMarineChartProps {
   onToggleAddWaypointMode?: () => void;
   onClearLastWaypoint?: () => void;
   onSelectWaypoint?: (wp: Waypoint) => void;
+  onStartNavigation?: (target?: Waypoint | { id?: string; latitude: number; longitude: number; name: string }) => void;
+  onStopNavigation?: () => void;
   headingMode?: 'gps' | 'compass';
   onHeadingModeChange?: (mode: 'gps' | 'compass') => void;
 }
@@ -109,20 +115,17 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
   onToggleAddWaypointMode,
   onClearLastWaypoint,
   onSelectWaypoint,
+  onStartNavigation,
+  onStopNavigation,
   headingMode: headingModeProp,
   onHeadingModeChange: onHeadingModeChangeProp,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const lastTapRef = useRef<{ time: number; x: number; y: number } | null>(null);
+  const flagClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const waypointCount = activeRoute?.waypoints?.length || 0;
-
-  const handleToggleAddWaypointMode = () => {
-    if (onToggleAddWaypointMode) {
-      onToggleAddWaypointMode();
-    }
-  };
 
   const handleClearLastWaypoint = () => {
     if (onClearLastWaypoint) {
@@ -222,6 +225,25 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
   const [showUserTags, setShowUserTags] = useState<boolean>(true);
   const [isAddFlagMode, setIsAddFlagMode] = useState<boolean>(false);
 
+  const handleToggleAddWaypointMode = useCallback(() => {
+    if (isAddFlagMode) {
+      setIsAddFlagMode(false);
+    }
+    if (onToggleAddWaypointMode) {
+      onToggleAddWaypointMode();
+    }
+  }, [isAddFlagMode, onToggleAddWaypointMode]);
+
+  const handleToggleAddFlagMode = useCallback(() => {
+    setIsAddFlagMode((prev) => {
+      const next = !prev;
+      if (next && isAddWaypointMode && onToggleAddWaypointMode) {
+        onToggleAddWaypointMode();
+      }
+      return next;
+    });
+  }, [isAddWaypointMode, onToggleAddWaypointMode]);
+
   // Download Working Area Modal state
   const [isWorkingAreaModalOpen, setIsWorkingAreaModalOpen] = useState<boolean>(false);
 
@@ -262,15 +284,30 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
     } catch (e) {}
   }, [liveProvider]);
 
-  // Subscribe to Persistent Tile Cache Updates
+  // Subscribe to Persistent Tile Cache Updates & Silent Auto Background Caching
   useEffect(() => {
     const updateStats = () => {
       getCachedTileStats().then(setCacheStats);
     };
     updateStats();
     const unsub = subscribeTileCacheUpdates(updateStats);
-    return () => unsub();
+
+    // Silently auto-cache global marine overview (zoom 1-5, all global oceans & shipping lanes)
+    // in background so user has 100% offline access anywhere in the world!
+    const timer = setTimeout(() => {
+      autoDownloadGlobalMarineOverview('google_nautical')
+        .then(() => getCachedTileStats().then(setCacheStats))
+        .catch(() => {});
+    }, 2500);
+
+    return () => {
+      unsub();
+      clearTimeout(timer);
+    };
   }, []);
+
+  const [isUpdatingMap, setIsUpdatingMap] = useState<boolean>(false);
+  const [updateProgress, setUpdateProgress] = useState<{ done: number; total: number } | null>(null);
 
   // Monitor network connectivity (Do NOT force switch away from high-res tiles when offline!)
   useEffect(() => {
@@ -414,6 +451,28 @@ function drawSmoothPolygon(
     renderTriggerRef.current = (renderTriggerRef.current + 1) % 1000;
   }, []);
 
+  const handleUpdateGlobalMap = useCallback(async () => {
+    if (isUpdatingMap) return;
+    setIsUpdatingMap(true);
+    setPreCacheSuccess('Updating global maritime charts & vector channels...');
+    try {
+      const provider = mapMode === 'vector' ? 'google_nautical' : liveProvider;
+      const res = await updateGlobalMarineMap(provider, (done, total) => {
+        setUpdateProgress({ done, total });
+      });
+      setPreCacheSuccess(`Marine chart updated (${res.total} tiles) • 100% Offline Ready`);
+      setTimeout(() => setPreCacheSuccess(null), 4000);
+      getCachedTileStats().then(setCacheStats);
+      triggerTileRedraw();
+    } catch {
+      setPreCacheSuccess('Chart update finished.');
+      setTimeout(() => setPreCacheSuccess(null), 3000);
+    } finally {
+      setIsUpdatingMap(false);
+      setUpdateProgress(null);
+    }
+  }, [isUpdatingMap, mapMode, liveProvider, triggerTileRedraw]);
+
   // Pre-cache marine viewport tiles for offline voyage
   const handlePreCacheCurrentView = useCallback(async () => {
     if (isPreCaching) return;
@@ -535,10 +594,34 @@ function drawSmoothPolygon(
   }, []);
 
   const handleNavigateToUserTag = useCallback((tag: UserTag) => {
-    if (onMapClickAddWaypoint) {
-      onMapClickAddWaypoint(tag.latitude, tag.longitude);
+    if (onStartNavigation) {
+      onStartNavigation({
+        id: tag.id,
+        name: tag.name,
+        latitude: tag.latitude,
+        longitude: tag.longitude
+      });
     }
-  }, [onMapClickAddWaypoint]);
+  }, [onStartNavigation]);
+
+  const dropFlagAtGeo = useCallback((lat: number, lon: number) => {
+    const newTag: UserTag = {
+      id: `flag_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      name: `Flag ${userTags.length + 1}`,
+      latitude: Number(lat.toFixed(5)),
+      longitude: Number(lon.toFixed(5)),
+      color: '#ec4899',
+      createdAt: Date.now()
+    };
+    setUserTags((prev) => {
+      const updated = [...prev, newTag];
+      try { localStorage.setItem('mariner_user_tags_v1', JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+    setTagToEdit(newTag);
+    setIsTagModalOpen(true);
+    setIsAddFlagMode(false);
+  }, [userTags.length]);
 
   // Main Canvas Rendering Engine
   const renderChart = useCallback(() => {
@@ -2066,6 +2149,30 @@ function drawSmoothPolygon(
     setAutoFollowVessel(false);
   };
 
+  // Comprehensive hit-testing for User Custom Flags (covers pin base, flagpole, triangular pennant, and badge label)
+  const isClickOnUserTag = useCallback((clickX: number, clickY: number, tag: UserTag, width: number, height: number): boolean => {
+    const pt = geoToCanvas(tag.longitude, tag.latitude, width, height);
+    // 1. Check circular radius around bottom pin (generous 36px radius)
+    const dBase = Math.hypot(clickX - pt.x, clickY - pt.y);
+    if (dBase <= 36) return true;
+
+    // 2. Check circular radius around upper flagpole & triangle cloth
+    const dTop = Math.hypot(clickX - (pt.x + 8), clickY - (pt.y - 17));
+    if (dTop <= 36) return true;
+
+    // 3. Check bounding rectangle covering flag and badge text
+    const badgeW = (tag.name.length + 3) * 9 + 30;
+    if (
+      clickX >= pt.x - 20 &&
+      clickX <= pt.x + 25 + badgeW &&
+      clickY >= pt.y - 40 &&
+      clickY <= pt.y + 18
+    ) {
+      return true;
+    }
+    return false;
+  }, [geoToCanvas]);
+
   // Native Touch & Gesture handling on Canvas: Ultra-fluid 360-degree panning with zero frame drop
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -2165,7 +2272,12 @@ function drawSmoothPolygon(
             Math.hypot(clickX - lastTap.x, clickY - lastTap.y) < 40
           );
 
-          if (isAddWaypointMode) {
+          // 0. If Flag Placement Mode is active, drop flag at tap location immediately!
+          if (isAddFlagMode) {
+            const geo = canvasToGeo(clickX, clickY, rect.width, rect.height);
+            dropFlagAtGeo(geo.lat, geo.lon);
+            lastTapRef.current = null;
+          } else if (isAddWaypointMode) {
             if (isDoubleTap && onMapClickAddWaypoint) {
               const { lat, lon } = canvasToGeo(clickX, clickY, rect.width, rect.height);
               onMapClickAddWaypoint(lat, lon);
@@ -2175,53 +2287,54 @@ function drawSmoothPolygon(
             }
           } else {
             let handledWaypoint = false;
-            if (activeRoute && onSelectWaypoint) {
+
+            // 1. Double tap on Flag -> Enter Flag Menu/Modal to edit, delete or navigate
+            if (isDoubleTap && showUserTags && userTags.length > 0) {
+              for (const tag of userTags) {
+                if (isClickOnUserTag(clickX, clickY, tag, rect.width, rect.height)) {
+                  if (flagClickTimerRef.current) {
+                    clearTimeout(flagClickTimerRef.current);
+                    flagClickTimerRef.current = null;
+                  }
+                  setTagToEdit(tag);
+                  setIsTagModalOpen(true);
+                  handledWaypoint = true;
+                  lastTapRef.current = null;
+                  break;
+                }
+              }
+            }
+
+            // 2. Single tap on Flag -> Debounced NAVIGATE so double-tap opens edit menu instead!
+            if (!handledWaypoint && !isDoubleTap && showUserTags && userTags.length > 0) {
+              for (const tag of userTags) {
+                if (isClickOnUserTag(clickX, clickY, tag, rect.width, rect.height)) {
+                  if (flagClickTimerRef.current) {
+                    clearTimeout(flagClickTimerRef.current);
+                    flagClickTimerRef.current = null;
+                  }
+                  flagClickTimerRef.current = setTimeout(() => {
+                    handleNavigateToUserTag(tag);
+                    flagClickTimerRef.current = null;
+                  }, 280);
+                  handledWaypoint = true;
+                  lastTapRef.current = { time: now, x: clickX, y: clickY };
+                  break;
+                }
+              }
+            }
+
+            // 3. Check tap on Route Waypoints
+            if (!handledWaypoint && activeRoute && onSelectWaypoint) {
               for (const wp of activeRoute.waypoints) {
                 const wpPt = geoToCanvas(wp.longitude, wp.latitude, rect.width, rect.height);
                 const d = Math.hypot(clickX - wpPt.x, clickY - wpPt.y);
-                if (d <= 25) {
+                if (d <= 28) {
                   onSelectWaypoint(wp);
                   handledWaypoint = true;
                   break;
                 }
               }
-            }
-
-            // Detect tap on User Custom Tags / Flags
-            if (!handledWaypoint && showUserTags && userTags.length > 0) {
-              for (const tag of userTags) {
-                const tagPt = geoToCanvas(tag.longitude, tag.latitude, rect.width, rect.height);
-                const d = Math.hypot(clickX - tagPt.x, clickY - tagPt.y);
-                if (d <= 25) {
-                  setTagToEdit(tag);
-                  setIsTagModalOpen(true);
-                  handledWaypoint = true;
-                  break;
-                }
-              }
-            }
-
-            // If Flag Placement Mode is active, drop flag at tap location immediately
-            if (!handledWaypoint && isAddFlagMode) {
-              const geo = canvasToGeo(clickX, clickY, rect.width, rect.height);
-              const newTag: UserTag = {
-                id: `flag_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-                name: `Flag ${userTags.length + 1}`,
-                latitude: Number(geo.lat.toFixed(5)),
-                longitude: Number(geo.lon.toFixed(5)),
-                color: '#ec4899',
-                createdAt: Date.now()
-              };
-              setUserTags((prev) => {
-                const updated = [...prev, newTag];
-                try { localStorage.setItem('mariner_user_tags_v1', JSON.stringify(updated)); } catch {}
-                return updated;
-              });
-              setTagToEdit(newTag);
-              setIsTagModalOpen(true);
-              setIsAddFlagMode(false);
-              handledWaypoint = true;
-              lastTapRef.current = null;
             }
 
             if (!handledWaypoint) {
@@ -2273,21 +2386,49 @@ function drawSmoothPolygon(
       canvas.removeEventListener('touchend', handleNativeTouchEnd);
       canvas.removeEventListener('touchcancel', handleNativeTouchEnd);
     };
-  }, [canvasToGeo, geoToCanvas, isAddWaypointMode, isAddFlagMode, onMapClickAddWaypoint, activeRoute, onSelectWaypoint, isFullscreen, showUserTags, userTags]);
+  }, [canvasToGeo, geoToCanvas, isAddWaypointMode, isAddFlagMode, onMapClickAddWaypoint, activeRoute, onSelectWaypoint, isFullscreen, showUserTags, userTags, handleNavigateToUserTag, dropFlagAtGeo]);
 
-  // Canvas Single Click (Selects existing waypoint/flag or places flag when in flag mode)
+  // Canvas Single Click (Single-click on flag navigates after debounce; single-click on waypoint selects it)
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (isAddWaypointMode) {
-      // In Add Waypoint mode, single clicks are reserved for dragging/panning to prevent accidental waypoint drops!
-      return;
-    }
-
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
+    // 0. If Flag Placement Mode is active, drop flag at clicked location immediately!
+    if (isAddFlagMode) {
+      const geo = canvasToGeo(x, y, rect.width, rect.height);
+      dropFlagAtGeo(geo.lat, geo.lon);
+      return;
+    }
+
+    if (isAddWaypointMode) {
+      // In Add Waypoint mode, single clicks are reserved for dragging/panning to prevent accidental waypoint drops!
+      return;
+    }
+
+    // 1. Detect single-click on User Custom Flags -> Debounced NAVIGATE to it!
+    // Gives 280ms window for double-click to open edit/delete menu without unwanted navigation
+    if (showUserTags && userTags.length > 0) {
+      for (const tag of userTags) {
+        const tagPt = geoToCanvas(tag.longitude, tag.latitude, rect.width, rect.height);
+        const dist = Math.hypot(x - tagPt.x, y - tagPt.y);
+        if (dist <= 30) {
+          if (flagClickTimerRef.current) {
+            clearTimeout(flagClickTimerRef.current);
+            flagClickTimerRef.current = null;
+          }
+          flagClickTimerRef.current = setTimeout(() => {
+            handleNavigateToUserTag(tag);
+            flagClickTimerRef.current = null;
+          }, 280);
+          return;
+        }
+      }
+    }
+
+    // 2. Detect single-click on existing Route Waypoints
     if (activeRoute && onSelectWaypoint) {
       for (const wp of activeRoute.waypoints) {
         const wpPt = geoToCanvas(wp.longitude, wp.latitude, rect.width, rect.height);
@@ -2298,13 +2439,35 @@ function drawSmoothPolygon(
         }
       }
     }
+  };
 
-    // Detect click on User Custom Flags (allow edit/delete on click)
+  // Canvas Double Click (Double click on flag opens menu to edit/delete; double click in waypoint mode adds waypoint; otherwise zooms)
+  const handleCanvasDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    // Clear any pending single-click navigation timer immediately
+    if (flagClickTimerRef.current) {
+      clearTimeout(flagClickTimerRef.current);
+      flagClickTimerRef.current = null;
+    }
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // 0. If Flag Placement Mode is active, drop flag at double-clicked location immediately!
+    if (isAddFlagMode) {
+      const geo = canvasToGeo(x, y, rect.width, rect.height);
+      dropFlagAtGeo(geo.lat, geo.lon);
+      return;
+    }
+
+    // 1. Detect double-click on User Custom Flags -> OPEN EDIT/DELETE MODAL!
     if (showUserTags && userTags.length > 0) {
       for (const tag of userTags) {
         const tagPt = geoToCanvas(tag.longitude, tag.latitude, rect.width, rect.height);
         const dist = Math.hypot(x - tagPt.x, y - tagPt.y);
-        if (dist <= 25) {
+        if (dist <= 30) {
           setTagToEdit(tag);
           setIsTagModalOpen(true);
           return;
@@ -2312,42 +2475,12 @@ function drawSmoothPolygon(
       }
     }
 
-    // If Flag Placement Mode is active, drop flag at clicked location
-    if (isAddFlagMode) {
-      const geo = canvasToGeo(x, y, rect.width, rect.height);
-      const newTag: UserTag = {
-        id: `flag_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        name: `Flag ${userTags.length + 1}`,
-        latitude: Number(geo.lat.toFixed(5)),
-        longitude: Number(geo.lon.toFixed(5)),
-        color: '#ec4899',
-        createdAt: Date.now()
-      };
-      setUserTags((prev) => {
-        const updated = [...prev, newTag];
-        try { localStorage.setItem('mariner_user_tags_v1', JSON.stringify(updated)); } catch {}
-        return updated;
-      });
-      setTagToEdit(newTag);
-      setIsTagModalOpen(true);
-      setIsAddFlagMode(false);
-      return;
-    }
-  };
-
-  // Canvas Double Click (Adds waypoint if in mode, or zooms directly to cursor if exploring)
-  const handleCanvasDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
+    // 2. Waypoint creation: ONLY when isAddWaypointMode is ACTIVE!
     if (isAddWaypointMode && onMapClickAddWaypoint) {
       const { lat, lon } = canvasToGeo(x, y, rect.width, rect.height);
       onMapClickAddWaypoint(lat, lon);
     } else if (!isAddWaypointMode) {
-      // Fluid double-click zoom directly towards the clicked point
+      // Fluid double-click zoom directly towards the clicked point (NEVER adds a waypoint!)
       const geoBefore = canvasToGeo(x, y, rect.width, rect.height);
       const newZoom = Math.min(2500000, zoomRef.current * 2.0);
       const worldPixels = newZoom * 3600;
@@ -2634,13 +2767,10 @@ function drawSmoothPolygon(
                     ? 'bg-emerald-600 text-white shadow'
                     : 'text-slate-400 hover:text-white'
                 }`}
-                title="High-Resolution Satellite & Marine Tiles (Auto-cached for offline use)"
+                title="High-Resolution Marine Tiles"
               >
                 <Globe className="w-2.5 h-2.5" />
                 <span>TILES</span>
-                <span className="text-[8px] px-1 py-0.1 bg-emerald-950/90 text-emerald-300 rounded font-normal">
-                  {cacheStats.count}
-                </span>
               </button>
               <button
                 type="button"
@@ -2657,15 +2787,50 @@ function drawSmoothPolygon(
               </button>
             </div>
 
-            {/* Download Working Area Button (Fullscreen) */}
+            {/* In-Map Navigation Controls: Stop & Start (Fullscreen) */}
+            {navigationSession.isNavigating ? (
+              <div className="flex items-center gap-1.5 bg-slate-900/95 p-0.5 rounded-lg border border-rose-500/70 shadow-2xl backdrop-blur-md text-xs font-mono">
+                <span className="hidden sm:inline text-[10px] text-rose-300 font-bold px-1.5">
+                  {targetWaypoint?.name || 'DESTINATION'} ({directDistanceNm.toFixed(1)} NM)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onStopNavigation && onStopNavigation()}
+                  className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-bold text-[9px] sm:text-[10px] font-sans flex items-center gap-1 shadow-lg shadow-rose-950/60 transition-all shrink-0"
+                  title="Stop active marine navigation (توقف ناوبری)"
+                >
+                  <Square className="w-3 h-3 fill-current" />
+                  <span>STOP NAV</span>
+                </button>
+              </div>
+            ) : (
+              (targetWaypoint || (activeRoute && activeRoute.waypoints.length > 0)) && (
+                <button
+                  type="button"
+                  onClick={() => onStartNavigation && onStartNavigation(targetWaypoint || undefined)}
+                  className="px-2.5 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 active:scale-95 text-white font-bold text-[9px] sm:text-[10px] font-sans flex items-center gap-1 shadow-lg shadow-cyan-950/60 transition-all shrink-0"
+                  title="Start marine navigation to destination (شروع ناوبری)"
+                >
+                  <Navigation className="w-3 h-3 fill-current" />
+                  <span>START NAV</span>
+                </button>
+              )
+            )}
+
+            {/* Update Map Button (Top Right in Fullscreen) */}
             <button
               type="button"
-              onClick={() => setIsWorkingAreaModalOpen(true)}
-              className="px-2.5 py-1 rounded-lg bg-emerald-600/90 hover:bg-emerald-500 active:scale-95 text-white font-bold text-[9px] sm:text-[10px] font-sans flex items-center gap-1.5 shadow-lg shadow-emerald-950/40 backdrop-blur-md transition-all shrink-0"
-              title="Download Working Area for fast offline marine navigation"
+              onClick={handleUpdateGlobalMap}
+              disabled={isUpdatingMap}
+              className={`px-2.5 py-1 rounded-lg border text-white font-bold text-[9px] sm:text-[10px] font-sans flex items-center gap-1.5 shadow-lg backdrop-blur-md transition-all shrink-0 ${
+                isUpdatingMap
+                  ? 'bg-amber-600/90 border-amber-400 animate-pulse'
+                  : 'bg-emerald-600/90 hover:bg-emerald-500 border-emerald-500/50 active:scale-95 shadow-emerald-950/40'
+              }`}
+              title="Update global marine charts & channels (به‌روزرسانی نقشه)"
             >
-              <Download className="w-3 h-3" />
-              <span>Download Working Area</span>
+              <RefreshCw className={`w-3 h-3 ${isUpdatingMap ? 'animate-spin' : ''}`} />
+              <span>{isUpdatingMap ? (updateProgress ? `Updating ${Math.round((updateProgress.done / (updateProgress.total || 1)) * 100)}%` : 'Updating...') : 'Update Map'}</span>
             </button>
           </div>
         </div>
@@ -2674,26 +2839,80 @@ function drawSmoothPolygon(
       {/* Top Header Floating Status & Mode Bar (When NOT in Fullscreen) */}
       {!isFullscreen && (
         <div className="absolute top-2.5 left-2.5 right-2.5 flex flex-wrap items-center justify-between gap-1.5 pointer-events-none z-20">
-          {/* Left: Vessel Position, Heading Mode & Tile Mode */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <div className={`pointer-events-auto px-2.5 py-1 rounded-lg border backdrop-blur-md text-[11px] font-mono flex items-center gap-1.5 shadow-lg ${
-              isNightMode 
-                ? 'bg-red-950/85 border-red-800 text-red-300' 
-                : 'bg-slate-900/90 border-slate-700 text-slate-200'
-            }`}>
-              <Compass className={`w-3 h-3 ${isNightMode ? 'text-red-400' : 'text-cyan-400'}`} />
-              <span className="hidden xs:inline">Vessel:</span>
-              <span className="font-bold text-white">
-                {formatMarineDDM(gps.latitude !== null ? gps.latitude : vesselLat, false)}
-              </span>
-              <span className="text-slate-500">|</span>
-              <span className="font-bold text-white">
-                {formatMarineDDM(gps.longitude !== null ? gps.longitude : vesselLon, true)}
-              </span>
+          {/* Left: Navigation Controls, Vessel Position, Heading Mode & Tile Mode */}
+          <div className="flex flex-wrap items-center gap-1.5 pointer-events-auto">
+            {/* In-Map Navigation Controls: Stop & Start right at top */}
+            {navigationSession.isNavigating ? (
+              <div className="flex items-center gap-1.5 bg-slate-900/95 p-1 rounded-xl border border-rose-500/70 shadow-2xl backdrop-blur-md text-xs font-mono">
+                <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-950/80 text-rose-300">
+                  <Navigation className="w-3 h-3 text-rose-400 animate-pulse fill-current shrink-0" />
+                  <span className="text-[10px] font-bold text-white max-w-[100px] truncate">
+                    {targetWaypoint?.name || 'DESTINATION'}
+                  </span>
+                  <span className="text-[9px] text-rose-300 font-mono hidden xs:inline">
+                    {directDistanceNm.toFixed(1)} NM
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onStopNavigation && onStopNavigation()}
+                  className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-bold text-[10px] font-sans flex items-center gap-1 shadow-lg shadow-rose-950/60 transition-all shrink-0"
+                  title="Stop active marine navigation (توقف ناوبری)"
+                >
+                  <Square className="w-3 h-3 fill-current" />
+                  <span>STOP NAV</span>
+                </button>
+              </div>
+            ) : (
+              (targetWaypoint || (activeRoute && activeRoute.waypoints.length > 0)) && (
+                <button
+                  type="button"
+                  onClick={() => onStartNavigation && onStartNavigation(targetWaypoint || undefined)}
+                  className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-[10px] font-sans flex items-center gap-1.5 shadow-xl shadow-emerald-950/60 transition-all shrink-0"
+                  title="Start marine navigation to target (شروع ناوبری)"
+                >
+                  <Navigation className="w-3 h-3 fill-current" />
+                  <span>START NAV</span>
+                  {targetWaypoint ? (
+                    <span className="text-[9px] text-emerald-200 hidden sm:inline">({targetWaypoint.name})</span>
+                  ) : null}
+                </button>
+              )
+            )}
+
+            {/* High-Res Tiles vs Vector Toggle */}
+            <div className="flex items-center bg-slate-900/90 p-0.5 rounded-lg border border-slate-700 text-[10px] font-mono shadow-lg backdrop-blur-md">
+              <button
+                type="button"
+                onClick={() => setMapMode('high_res')}
+                className={`px-2 py-0.5 rounded transition-all flex items-center gap-1 font-bold ${
+                  mapMode === 'high_res'
+                    ? 'bg-emerald-600 text-white shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="High-Resolution Satellite & Marine Slippy Tiles"
+              >
+                <Globe className="w-2.5 h-2.5" />
+                <span>TILES</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setMapMode('vector')}
+                className={`px-2 py-0.5 rounded transition-all flex items-center gap-1 font-bold ${
+                  mapMode === 'vector'
+                    ? 'bg-cyan-600 text-white shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Clean Digital Vector Nautical Chart"
+              >
+                <Layers className="w-2.5 h-2.5" />
+                <span>VECTOR</span>
+              </button>
             </div>
 
             {/* Heading Source Toggle (GPS COG vs Compass) */}
-            <div className="pointer-events-auto flex items-center bg-slate-900/90 p-0.5 rounded-lg border border-slate-700 text-[10px] font-mono shadow-lg backdrop-blur-md">
+            <div className="flex items-center bg-slate-900/90 p-0.5 rounded-lg border border-slate-700 text-[10px] font-mono shadow-lg backdrop-blur-md">
               <button
                 type="button"
                 onClick={() => setHeadingMode('gps')}
@@ -2722,63 +2941,27 @@ function drawSmoothPolygon(
               </button>
             </div>
 
-            {/* High-Res Tiles vs Vector Toggle */}
-            <div className="pointer-events-auto flex items-center bg-slate-900/90 p-0.5 rounded-lg border border-slate-700 text-[10px] font-mono shadow-lg backdrop-blur-md">
-              <button
-                type="button"
-                onClick={() => setMapMode('high_res')}
-                className={`px-2 py-0.5 rounded transition-all flex items-center gap-1 font-bold ${
-                  mapMode === 'high_res'
-                    ? 'bg-emerald-600 text-white shadow'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="High-Resolution Satellite & Marine Slippy Tiles (Auto-cached for 100% offline use)"
-              >
-                <Globe className="w-2.5 h-2.5" />
-                <span>TILES</span>
-                <span className="text-[8px] px-1 py-0.1 bg-emerald-950 text-emerald-300 rounded font-normal">
-                  {cacheStats.count}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setMapMode('vector')}
-                className={`px-2 py-0.5 rounded transition-all flex items-center gap-1 font-bold ${
-                  mapMode === 'vector'
-                    ? 'bg-cyan-600 text-white shadow'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="Clean Digital Vector Nautical Chart"
-              >
-                <Layers className="w-2.5 h-2.5" />
-                <span>VECTOR</span>
-              </button>
+            {/* Vessel Coordinates */}
+            <div className={`hidden lg:flex px-2.5 py-1 rounded-lg border backdrop-blur-md text-[11px] font-mono items-center gap-1.5 shadow-lg ${
+              isNightMode 
+                ? 'bg-red-950/85 border-red-800 text-red-300' 
+                : 'bg-slate-900/90 border-slate-700 text-slate-200'
+            }`}>
+              <Compass className={`w-3 h-3 ${isNightMode ? 'text-red-400' : 'text-cyan-400'}`} />
+              <span className="font-bold text-white">
+                {formatMarineDDM(gps.latitude !== null ? gps.latitude : vesselLat, false)}
+              </span>
+              <span className="text-slate-500">|</span>
+              <span className="font-bold text-white">
+                {formatMarineDDM(gps.longitude !== null ? gps.longitude : vesselLon, true)}
+              </span>
             </div>
-
-            {/* Download Working Area Button (Standard Top Bar) */}
-            <button
-              type="button"
-              onClick={() => setIsWorkingAreaModalOpen(true)}
-              className="pointer-events-auto px-2.5 py-1 rounded-lg bg-emerald-600/90 hover:bg-emerald-500 active:scale-95 text-white font-bold text-[10px] font-sans flex items-center gap-1.5 shadow-lg shadow-emerald-950/40 backdrop-blur-md transition-all shrink-0"
-              title="Download Working Area for fast offline marine navigation"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Download Working Area</span>
-            </button>
-
-            {!isOnline && mapMode === 'high_res' && (
-              <div className="pointer-events-auto px-2 py-0.5 rounded-md bg-emerald-950/90 border border-emerald-500/60 text-emerald-300 text-[10px] font-mono flex items-center gap-1 shadow">
-                <HardDrive className="w-2.5 h-2.5" />
-                <span>OFFLINE CACHE ({cacheStats.count})</span>
-              </div>
-            )}
           </div>
 
-          {/* Right: Live Cursor Coordinate Display & Add Waypoint Banner */}
-          <div className="flex items-center gap-1.5">
+          {/* Right: Update Map Button in TOP-RIGHT corner of Vector Map & Cursor Display */}
+          <div className="flex items-center gap-1.5 pointer-events-auto">
             {cursorCoords && (
-              <div className={`hidden sm:flex pointer-events-auto px-2 py-0.5 rounded-lg border text-[10px] font-mono items-center gap-1 backdrop-blur-md ${
+              <div className={`hidden md:flex px-2 py-0.5 rounded-lg border text-[10px] font-mono items-center gap-1 backdrop-blur-md ${
                 isNightMode 
                   ? 'bg-red-950/70 border-red-900 text-red-400' 
                   : 'bg-slate-900/70 border-slate-800 text-slate-400'
@@ -2789,11 +2972,29 @@ function drawSmoothPolygon(
             )}
 
             {isAddWaypointMode && (
-              <div className="pointer-events-auto px-2.5 py-1 bg-amber-500 text-slate-950 font-bold rounded-lg text-[11px] flex items-center gap-1 shadow-lg animate-pulse">
+              <div className="px-2 py-0.5 bg-amber-500 text-slate-950 font-bold rounded-lg text-[10px] flex items-center gap-1 shadow-lg animate-pulse">
                 <MapPin className="w-3 h-3" />
-                <span>Tap on map to place Waypoint</span>
+                <span>Double-click map to place WP</span>
               </div>
             )}
+
+            {/* Update Map Button (Top Right of Vector Map) */}
+            <button
+              type="button"
+              onClick={handleUpdateGlobalMap}
+              disabled={isUpdatingMap}
+              className={`px-2.5 py-1 rounded-xl border text-white font-bold text-[10px] font-sans flex items-center gap-1.5 shadow-xl backdrop-blur-md transition-all shrink-0 ${
+                isUpdatingMap
+                  ? 'bg-amber-600/90 border-amber-400 animate-pulse'
+                  : isNightMode
+                  ? 'bg-red-950/90 hover:bg-red-900 border-red-800 text-emerald-400'
+                  : 'bg-slate-900/90 hover:bg-slate-800 border-emerald-500/50 text-emerald-400 hover:text-emerald-300 active:scale-95'
+              }`}
+              title="Update Map Data (به‌روزرسانی نقشه)"
+            >
+              <RefreshCw className={`w-3 h-3 ${isUpdatingMap ? 'animate-spin' : ''}`} />
+              <span>{isUpdatingMap ? (updateProgress ? `Updating ${Math.round((updateProgress.done / (updateProgress.total || 1)) * 100)}%` : 'Updating...') : 'Update Map'}</span>
+            </button>
           </div>
         </div>
       )}
@@ -2852,7 +3053,7 @@ function drawSmoothPolygon(
               <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping shrink-0" />
               <div className="flex flex-col min-w-0">
                 <span className="text-[11px] sm:text-xs font-bold text-amber-300 truncate">
-                  📍 Double-click on chart to place waypoint ({waypointCount}/50)
+                  📍 Double-click map to place Waypoint • دبل کلیک روی نقشه ({waypointCount}/50)
                 </span>
                 <span className="text-[9px] sm:text-[10px] text-slate-400 truncate hidden xs:inline">
                   Sequential route waypoints
@@ -2993,7 +3194,7 @@ function drawSmoothPolygon(
         {/* User Custom Flag Button (Direct single-click toggle placement mode) */}
         <button
           type="button"
-          onClick={() => setIsAddFlagMode((prev) => !prev)}
+          onClick={handleToggleAddFlagMode}
           className={`relative w-8 h-8 sm:w-9 sm:h-9 rounded-xl border backdrop-blur-md transition-all shadow-xl flex items-center justify-center ${
             isAddFlagMode
               ? 'bg-pink-600 border-pink-300 text-white font-black shadow-pink-500/50 scale-105 animate-pulse ring-2 ring-pink-400'
