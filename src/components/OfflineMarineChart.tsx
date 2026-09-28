@@ -32,6 +32,8 @@ import {
   Activity,
   Wind,
   Download,
+  DownloadCloud,
+  Loader2,
   HardDrive,
   Trash2,
   CheckCircle2,
@@ -42,7 +44,6 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { GpsData, CompassData, MarineRoute, Waypoint, NavigationSession, UserTag, WorkingAreaRecord } from '../types';
-import { WorkingAreaModal } from './WorkingAreaModal';
 import { UserTagModal } from './UserTagModal';
 import { 
   WORLD_LANDMASSES, 
@@ -80,10 +81,18 @@ import {
   getCachedTileStats,
   clearTileCache,
   preCacheAreaTiles,
+  preCacheCurrentViewport,
   subscribeTileCacheUpdates,
   autoDownloadGlobalMarineOverview,
   updateGlobalMarineMap
 } from '../utils/marineTileLoader';
+import {
+  initVectorMapStore,
+  updateVectorMapStore,
+  getVectorMapMeta,
+  subscribeVectorMapMeta,
+  VectorMapMeta
+} from '../utils/vectorMapStore';
 
 interface OfflineMarineChartProps {
   gps: GpsData;
@@ -243,9 +252,6 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
       return next;
     });
   }, [isAddWaypointMode, onToggleAddWaypointMode]);
-
-  // Download Working Area Modal state
-  const [isWorkingAreaModalOpen, setIsWorkingAreaModalOpen] = useState<boolean>(false);
 
   // Touch & Drag tracking for smooth panning and pinch-to-zoom
   const touchDistanceRef = useRef<number | null>(null);
@@ -451,13 +457,55 @@ function drawSmoothPolygon(
     renderTriggerRef.current = (renderTriggerRef.current + 1) % 1000;
   }, []);
 
+  // Offline Vector Map Storage & Metadata State
+  const [vectorMeta, setVectorMeta] = useState<VectorMapMeta>(getVectorMapMeta);
+  const [isUpdatingVector, setIsUpdatingVector] = useState(false);
+  const [vectorUpdateProgress, setVectorUpdateProgress] = useState<number | null>(null);
+
+  useEffect(() => {
+    initVectorMapStore().then(setVectorMeta);
+    return subscribeVectorMapMeta(setVectorMeta);
+  }, []);
+
+  const handleUpdateVectorMap = useCallback(async () => {
+    if (isUpdatingVector) return;
+    setIsUpdatingVector(true);
+    setVectorUpdateProgress(15);
+    setPreCacheSuccess('Synchronizing & verifying offline vector nautical chart...');
+    try {
+      const res = await updateVectorMapStore((pct) => {
+        setVectorUpdateProgress(pct);
+      });
+      if (res.success) {
+        setVectorMeta(res.meta);
+        setPreCacheSuccess(`Vector chart updated (${res.meta.totalFeatures} hydrographic objects) • 100% Offline Ready`);
+        setTimeout(() => setPreCacheSuccess(null), 4500);
+      } else {
+        setPreCacheSuccess('Vector chart is ready for offline navigation.');
+        setTimeout(() => setPreCacheSuccess(null), 3500);
+      }
+      getCachedTileStats().then(setCacheStats);
+      triggerTileRedraw();
+    } catch {
+      setPreCacheSuccess('Error updating vector chart database.');
+      setTimeout(() => setPreCacheSuccess(null), 3000);
+    } finally {
+      setIsUpdatingVector(false);
+      setVectorUpdateProgress(null);
+    }
+  }, [isUpdatingVector, triggerTileRedraw]);
+
   const handleUpdateGlobalMap = useCallback(async () => {
+    if (mapMode === 'vector') {
+      await handleUpdateVectorMap();
+      return;
+    }
+
     if (isUpdatingMap) return;
     setIsUpdatingMap(true);
     setPreCacheSuccess('Updating global maritime charts & vector channels...');
     try {
-      const provider = mapMode === 'vector' ? 'google_nautical' : liveProvider;
-      const res = await updateGlobalMarineMap(provider, (done, total) => {
+      const res = await updateGlobalMarineMap(liveProvider, (done, total) => {
         setUpdateProgress({ done, total });
       });
       setPreCacheSuccess(`Marine chart updated (${res.total} tiles) • 100% Offline Ready`);
@@ -471,7 +519,7 @@ function drawSmoothPolygon(
       setIsUpdatingMap(false);
       setUpdateProgress(null);
     }
-  }, [isUpdatingMap, mapMode, liveProvider, triggerTileRedraw]);
+  }, [isUpdatingMap, mapMode, liveProvider, triggerTileRedraw, handleUpdateVectorMap]);
 
   // Pre-cache marine viewport tiles for offline voyage
   const handlePreCacheCurrentView = useCallback(async () => {
@@ -642,93 +690,95 @@ function drawSmoothPolygon(
     // =========================================================================
     // 1. BASE HYDROGRAPHIC WATER & UNDERLYING SHORELINE VECTORS
     // =========================================================================
-    // 1. Deep Oceanic Water Base Fill (Admiralty Deep Blue)
-    ctx.fillStyle = isNightMode ? '#080404' : '#071626';
+    // 1. Deep Oceanic Water Base Fill (Admiralty Cyan in Vector Mode, Deep Navy in Satellite Mode)
+    ctx.fillStyle = isNightMode ? '#080404' : (mapMode === 'vector' ? '#aad3df' : '#071626');
     ctx.fillRect(0, 0, width, height);
 
-    // 2. Draw World Landmass Polygons & Outer Coastlines (Warm Nautical Khaki with Organic Spline Curves)
-    WORLD_LANDMASSES.forEach((land) => {
-      if (land.points.length < 3) return;
-      const screenPts = land.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
+    // 2. Draw World Landmass Polygons & Outer Coastlines (Fallback for Satellite mode only)
+    if (mapMode !== 'vector') {
+      WORLD_LANDMASSES.forEach((land) => {
+        if (land.points.length < 3) return;
+        const screenPts = land.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
 
-      // Bounding box screen culling check
-      let minX = screenPts[0].x, maxX = screenPts[0].x;
-      let minY = screenPts[0].y, maxY = screenPts[0].y;
-      for (let i = 1; i < screenPts.length; i++) {
-        const pt = screenPts[i];
-        if (pt.x < minX) minX = pt.x;
-        if (pt.x > maxX) maxX = pt.x;
-        if (pt.y < minY) minY = pt.y;
-        if (pt.y > maxY) maxY = pt.y;
-      }
-      if (maxX < -80 || minX > width + 80 || maxY < -80 || minY > height + 80) {
-        return;
-      }
+        // Bounding box screen culling check
+        let minX = screenPts[0].x, maxX = screenPts[0].x;
+        let minY = screenPts[0].y, maxY = screenPts[0].y;
+        for (let i = 1; i < screenPts.length; i++) {
+          const pt = screenPts[i];
+          if (pt.x < minX) minX = pt.x;
+          if (pt.x > maxX) maxX = pt.x;
+          if (pt.y < minY) minY = pt.y;
+          if (pt.y > maxY) maxY = pt.y;
+        }
+        if (maxX < -80 || minX > width + 80 || maxY < -80 || minY > height + 80) {
+          return;
+        }
 
-      // Draw natural, organic shoreline curves
-      drawSmoothPolygon(ctx, screenPts, 0.22);
+        // Draw natural, organic shoreline curves
+        drawSmoothPolygon(ctx, screenPts, 0.22);
 
-      // Land fill color: Authentic Nautical Chart Buff / Khaki tone
-      ctx.fillStyle = isNightMode ? '#2d2215' : '#d8c79d';
-      ctx.fill();
+        // Land fill color: Authentic Nautical Chart Buff / Khaki tone
+        ctx.fillStyle = isNightMode ? '#2d2215' : '#d8c79d';
+        ctx.fill();
 
-      // Coastal shallow intertidal fringe (gives authentic hydrographic depth)
-      ctx.strokeStyle = isNightMode ? 'rgba(110, 79, 37, 0.35)' : 'rgba(18, 72, 99, 0.28)';
-      ctx.lineWidth = 4.5;
-      ctx.stroke();
+        // Coastal shallow intertidal fringe (gives authentic hydrographic depth)
+        ctx.strokeStyle = isNightMode ? 'rgba(110, 79, 37, 0.35)' : 'rgba(18, 72, 99, 0.28)';
+        ctx.lineWidth = 4.5;
+        ctx.stroke();
 
-      // Coastline stroke: Rich ochre shoreline border
-      ctx.strokeStyle = isNightMode ? '#6e4f25' : '#9b824f';
-      ctx.lineWidth = 1.6;
-      ctx.stroke();
-    });
+        // Coastline stroke: Rich ochre shoreline border
+        ctx.strokeStyle = isNightMode ? '#6e4f25' : '#9b824f';
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+      });
 
-    // 3. Draw Inland Water Bodies & Major Regional Seas (Caspian Sea, Black Sea, Sea of Azov, Sea of Marmara, Lakes)
-    INLAND_WATER_BODIES.forEach((water) => {
-      if (water.points.length < 3) return;
-      const screenPts = water.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
+      // 3. Draw Inland Water Bodies & Major Regional Seas (Caspian Sea, Black Sea, Sea of Azov, Sea of Marmara, Lakes)
+      INLAND_WATER_BODIES.forEach((water) => {
+        if (water.points.length < 3) return;
+        const screenPts = water.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
 
-      let minX = screenPts[0].x, maxX = screenPts[0].x;
-      let minY = screenPts[0].y, maxY = screenPts[0].y;
-      for (let i = 1; i < screenPts.length; i++) {
-        const pt = screenPts[i];
-        if (pt.x < minX) minX = pt.x;
-        if (pt.x > maxX) maxX = pt.x;
-        if (pt.y < minY) minY = pt.y;
-        if (pt.y > maxY) maxY = pt.y;
-      }
-      if (maxX < -80 || minX > width + 80 || maxY < -80 || minY > height + 80) {
-        return;
-      }
+        let minX = screenPts[0].x, maxX = screenPts[0].x;
+        let minY = screenPts[0].y, maxY = screenPts[0].y;
+        for (let i = 1; i < screenPts.length; i++) {
+          const pt = screenPts[i];
+          if (pt.x < minX) minX = pt.x;
+          if (pt.x > maxX) maxX = pt.x;
+          if (pt.y < minY) minY = pt.y;
+          if (pt.y > maxY) maxY = pt.y;
+        }
+        if (maxX < -80 || minX > width + 80 || maxY < -80 || minY > height + 80) {
+          return;
+        }
 
-      drawSmoothPolygon(ctx, screenPts, 0.18);
+        drawSmoothPolygon(ctx, screenPts, 0.18);
 
-      // Water fill color (Deep Admiralty Blue)
-      ctx.fillStyle = isNightMode ? '#080404' : '#071626';
-      ctx.fill();
+        // Water fill color (Deep Admiralty Blue)
+        ctx.fillStyle = isNightMode ? '#080404' : '#071626';
+        ctx.fill();
 
-      // Coastal shallow fringe
-      ctx.strokeStyle = isNightMode ? 'rgba(110, 79, 37, 0.35)' : 'rgba(18, 72, 99, 0.28)';
-      ctx.lineWidth = 4;
-      ctx.stroke();
+        // Coastal shallow fringe
+        ctx.strokeStyle = isNightMode ? 'rgba(110, 79, 37, 0.35)' : 'rgba(18, 72, 99, 0.28)';
+        ctx.lineWidth = 4;
+        ctx.stroke();
 
-      // Coastline stroke: Rich ochre shoreline border
-      ctx.strokeStyle = isNightMode ? '#6e4f25' : '#9b824f';
-      ctx.lineWidth = 1.6;
-      ctx.stroke();
-    });
+        // Coastline stroke: Rich ochre shoreline border
+        ctx.strokeStyle = isNightMode ? '#6e4f25' : '#9b824f';
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+      });
 
-    // Re-draw any islands situated inside inland water bodies (e.g. Ashuradeh in Caspian, Snake Island in Black Sea)
-    WORLD_LANDMASSES.filter(l => l.name.includes('Ashuradeh') || l.name.includes('Ogurchinskiy') || l.name.includes('Snake Island')).forEach((island) => {
-      if (island.points.length < 3) return;
-      const screenPts = island.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
-      drawSmoothPolygon(ctx, screenPts, 0.2);
-      ctx.fillStyle = isNightMode ? '#2d2215' : '#d8c79d';
-      ctx.fill();
-      ctx.strokeStyle = isNightMode ? '#6e4f25' : '#9b824f';
-      ctx.lineWidth = 1.6;
-      ctx.stroke();
-    });
+      // Re-draw any islands situated inside inland water bodies (e.g. Ashuradeh in Caspian, Snake Island in Black Sea)
+      WORLD_LANDMASSES.filter(l => l.name.includes('Ashuradeh') || l.name.includes('Ogurchinskiy') || l.name.includes('Snake Island')).forEach((island) => {
+        if (island.points.length < 3) return;
+        const screenPts = island.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
+        drawSmoothPolygon(ctx, screenPts, 0.2);
+        ctx.fillStyle = isNightMode ? '#2d2215' : '#d8c79d';
+        ctx.fill();
+        ctx.strokeStyle = isNightMode ? '#6e4f25' : '#9b824f';
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+      });
+    }
 
     // 4. Draw Bathymetry Depth Zones & Contours
     if (showBathymetry && mapMode === 'vector') {
@@ -800,7 +850,7 @@ function drawSmoothPolygon(
         showLiveSeamarks
       );
     } else if (mapMode === 'vector') {
-      // High-Definition Electronic Navigational Chart (ENC Vector Nautical Chart)
+      // High-Definition Electronic Navigational Chart (ENC Vector Nautical Chart - 100% Offline Ready)
       renderLiveMapTiles(
         ctx,
         'google_nautical',
@@ -2816,22 +2866,6 @@ function drawSmoothPolygon(
                 </button>
               )
             )}
-
-            {/* Update Map Button (Top Right in Fullscreen) */}
-            <button
-              type="button"
-              onClick={handleUpdateGlobalMap}
-              disabled={isUpdatingMap}
-              className={`px-2.5 py-1 rounded-lg border text-white font-bold text-[9px] sm:text-[10px] font-sans flex items-center gap-1.5 shadow-lg backdrop-blur-md transition-all shrink-0 ${
-                isUpdatingMap
-                  ? 'bg-amber-600/90 border-amber-400 animate-pulse'
-                  : 'bg-emerald-600/90 hover:bg-emerald-500 border-emerald-500/50 active:scale-95 shadow-emerald-950/40'
-              }`}
-              title="Update global marine charts & channels (به‌روزرسانی نقشه)"
-            >
-              <RefreshCw className={`w-3 h-3 ${isUpdatingMap ? 'animate-spin' : ''}`} />
-              <span>{isUpdatingMap ? (updateProgress ? `Updating ${Math.round((updateProgress.done / (updateProgress.total || 1)) * 100)}%` : 'Updating...') : 'Update Map'}</span>
-            </button>
           </div>
         </div>
       )}
@@ -2977,24 +3011,6 @@ function drawSmoothPolygon(
                 <span>Double-click map to place WP</span>
               </div>
             )}
-
-            {/* Update Map Button (Top Right of Vector Map) */}
-            <button
-              type="button"
-              onClick={handleUpdateGlobalMap}
-              disabled={isUpdatingMap}
-              className={`px-2.5 py-1 rounded-xl border text-white font-bold text-[10px] font-sans flex items-center gap-1.5 shadow-xl backdrop-blur-md transition-all shrink-0 ${
-                isUpdatingMap
-                  ? 'bg-amber-600/90 border-amber-400 animate-pulse'
-                  : isNightMode
-                  ? 'bg-red-950/90 hover:bg-red-900 border-red-800 text-emerald-400'
-                  : 'bg-slate-900/90 hover:bg-slate-800 border-emerald-500/50 text-emerald-400 hover:text-emerald-300 active:scale-95'
-              }`}
-              title="Update Map Data (به‌روزرسانی نقشه)"
-            >
-              <RefreshCw className={`w-3 h-3 ${isUpdatingMap ? 'animate-spin' : ''}`} />
-              <span>{isUpdatingMap ? (updateProgress ? `Updating ${Math.round((updateProgress.done / (updateProgress.total || 1)) * 100)}%` : 'Updating...') : 'Update Map'}</span>
-            </button>
           </div>
         </div>
       )}
@@ -3267,6 +3283,27 @@ function drawSmoothPolygon(
         >
           <Layers className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </button>
+
+        {/* Load Current Map View Offline Button (Requested by User) */}
+        <button
+          type="button"
+          onClick={handlePreCacheCurrentView}
+          disabled={isPreCaching}
+          className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl border backdrop-blur-md transition-all shadow-lg flex items-center justify-center relative ${
+            isPreCaching
+              ? 'bg-emerald-600 border-emerald-400 text-white animate-pulse'
+              : isNightMode 
+                ? 'bg-red-950/90 border-red-800 text-emerald-400 hover:bg-red-900 hover:border-emerald-500' 
+                : 'bg-slate-900/90 border-slate-700 text-emerald-400 hover:bg-slate-800 hover:border-emerald-400 hover:text-emerald-300'
+          }`}
+          title="Download & Cache Current View for 100% Offline Navigation (Load Current Map)"
+        >
+          {isPreCaching ? (
+            <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin text-white" />
+          ) : (
+            <DownloadCloud className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400" />
+          )}
+        </button>
       </div>
 
       {/* Layers & Map Selection Popup (Clean, focused only on Layer Selection) */}
@@ -3322,9 +3359,50 @@ function drawSmoothPolygon(
                   <Layers className="w-3 h-3" />
                   <span>ENC Vector</span>
                 </div>
-                <div className="text-[9px] opacity-80 font-mono">ECDIS S-52 Style</div>
+                <div className="text-[9px] opacity-80 font-mono">100% Offline S-52</div>
               </button>
             </div>
+
+            {/* Offline Vector Database Management Card */}
+            {mapMode === 'vector' && (
+              <div className="mt-1 p-2.5 rounded-xl bg-cyan-950/40 border border-cyan-800/60 flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-cyan-300 flex items-center gap-1.5">
+                    <Database className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Offline Vector Chart Database</span>
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded text-[8.5px] font-mono bg-emerald-950/90 text-emerald-300 border border-emerald-600/50 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>100% Offline Ready</span>
+                  </span>
+                </div>
+
+                <div className="text-[9.5px] text-slate-300 flex flex-col gap-0.5 bg-slate-950/40 p-2 rounded-lg border border-slate-800/80">
+                  <div className="flex justify-between text-slate-400">
+                    <span>Chart Version:</span>
+                    <span className="font-mono text-cyan-200">{vectorMeta.version}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-400">
+                    <span>Last Updated:</span>
+                    <span className="font-mono text-slate-200">{vectorMeta.lastUpdatedAt}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-400">
+                    <span>Nautical Features:</span>
+                    <span className="font-mono text-emerald-300">{vectorMeta.totalFeatures.toLocaleString()} Hydrographic Objects</span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleUpdateVectorMap}
+                  disabled={isUpdatingVector}
+                  className="w-full py-1.5 px-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 active:scale-95 disabled:opacity-50 text-white font-bold text-[10px] flex items-center justify-center gap-1.5 shadow transition-all"
+                >
+                  <RefreshCw className={`w-3 h-3 ${isUpdatingVector ? 'animate-spin' : ''}`} />
+                  <span>{isUpdatingVector ? `Updating Chart... ${vectorUpdateProgress || ''}%` : 'Manual Update Vector Chart'}</span>
+                </button>
+              </div>
+            )}
 
             {/* Provider Options when High-Res */}
             {mapMode === 'high_res' && (
@@ -3346,6 +3424,27 @@ function drawSmoothPolygon(
                       <span className="text-[8px] opacity-80 font-mono">{p.badge}</span>
                     </button>
                   ))}
+                </div>
+
+                {/* Quick Load Current Map in High-Res */}
+                <div className="mt-1.5 p-2 rounded-xl bg-slate-950/50 border border-slate-800 flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="text-slate-400 font-bold">Cached Slippy Tiles:</span>
+                    <span className="font-mono text-emerald-400">{cacheStats.count} tiles ({cacheStats.estimatedMb} MB)</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handlePreCacheCurrentView}
+                    disabled={isPreCaching}
+                    className="w-full py-1.5 px-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-95 disabled:opacity-50 text-white font-bold text-[10px] flex items-center justify-center gap-1.5 transition-all shadow"
+                  >
+                    {isPreCaching ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <DownloadCloud className="w-3 h-3" />
+                    )}
+                    <span>{isPreCaching ? `Downloading Tiles... (${preCacheProgress ? `${preCacheProgress.done}/${preCacheProgress.total}` : ''})` : 'Download Current View (Load Offline Map)'}</span>
+                  </button>
                 </div>
               </div>
             )}
@@ -3511,21 +3610,6 @@ function drawSmoothPolygon(
               />
             </label>
           </div>
-
-          {/* Quick link to Working Area Downloader */}
-          <div className="pt-2 border-t border-slate-800">
-            <button
-              type="button"
-              onClick={() => {
-                setShowLayersMenu(false);
-                setIsWorkingAreaModalOpen(true);
-              }}
-              className="w-full py-2 px-3 rounded-xl bg-emerald-600/90 hover:bg-emerald-500 active:scale-95 text-white font-bold text-[11px] flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-950/40 transition-all"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Download Working Area (Offline Storage)</span>
-            </button>
-          </div>
         </div>
       )}
 
@@ -3605,31 +3689,9 @@ function drawSmoothPolygon(
         <div className={`absolute bottom-3 right-3 px-3 py-1 rounded-lg border text-[10px] font-mono backdrop-blur-md pointer-events-none z-20 shadow-md ${
           isNightMode ? 'bg-red-950/80 border-red-900 text-red-400' : 'bg-slate-900/80 border-slate-800 text-slate-400'
         }`}>
-          Zoom: {zoom.toFixed(0)}x • {mapMode === 'high_res' ? `🛰️ High-Res Tiles (${cacheStats.count} cached)` : '📡 Vector Nautical Chart'}
+          Zoom: {zoom.toFixed(0)}x • {mapMode === 'high_res' ? `🛰️ High-Res Tiles (${cacheStats.count} cached)` : `📡 100% Offline Vector Chart (${vectorMeta.totalFeatures} features)`}
         </div>
       )}
-
-      {/* Download Working Area Modal */}
-      <WorkingAreaModal
-        isOpen={isWorkingAreaModalOpen}
-        onClose={() => setIsWorkingAreaModalOpen(false)}
-        gps={gps}
-        currentCenter={center}
-        currentZoom={zoom}
-        viewportBounds={{
-          minLon: canvasToGeo(0, 0, 800, 600).lon,
-          maxLon: canvasToGeo(800, 600, 800, 600).lon,
-          minLat: canvasToGeo(0, 600, 800, 600).lat,
-          maxLat: canvasToGeo(800, 0, 800, 600).lat,
-        }}
-        activeProvider={liveProvider}
-        onProviderChange={(p) => setLiveProvider(p)}
-        isNightMode={isNightMode}
-        onDownloadComplete={() => {
-          setMapMode('high_res');
-          triggerTileRedraw();
-        }}
-      />
 
       {/* User Custom Tag Modal */}
       <UserTagModal

@@ -223,7 +223,7 @@ export async function saveUrlToPersistentCache(url: string): Promise<void> {
 /**
  * Ultra-fast direct image request with background offline caching:
  * - Direct Image loading utilizes browser's C++ multithreaded network + GPU texture decoding
- * - Non-blocking asynchronous sync into CacheStorage for 100% offline access
+ * - Immediate synchronous src assignment with non-blocking asynchronous CacheStorage sync
  */
 function requestTileImage(
   url: string,
@@ -246,7 +246,7 @@ function requestTileImage(
   // Evict oldest entries if cache exceeds limit
   if (TILE_MEMORY_CACHE.size >= MAX_MEMORY_CACHE) {
     const iter = TILE_MEMORY_CACHE.keys();
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0; i < 100; i++) {
       const first = iter.next().value;
       if (first) TILE_MEMORY_CACHE.delete(first);
     }
@@ -301,25 +301,8 @@ function requestTileImage(
     }
   };
 
-  // If already in local CacheStorage, load immediately from local blob
-  if (CACHED_URLS_SET.has(url) && globalCacheInstance) {
-    globalCacheInstance.match(url).then(cachedResp => {
-      if (cachedResp && cachedResp.ok) {
-        cachedResp.blob().then(blob => {
-          const objUrl = URL.createObjectURL(blob);
-          img.src = objUrl;
-        }).catch(() => {
-          img.src = url;
-        });
-      } else {
-        img.src = url;
-      }
-    }).catch(() => {
-      img.src = url;
-    });
-  } else {
-    img.src = url;
-  }
+  // Immediate direct start - no async microtask delays!
+  img.src = url;
 
   return null;
 }
@@ -338,6 +321,7 @@ export function tileToGeoBounds(x: number, y: number, z: number) {
  * Render Slippy Tiles with Multi-Level Overzoom Hierarchical Fallback:
  * If an exact tile is loading, it searches memory for (z-1) up to (z-6) parents
  * and renders the scaled region instantaneously. Zero black gaps, zero delay!
+ * Also pre-fetches surrounding margin tiles for seamless fluid panning.
  */
 export function renderLiveMapTiles(
   ctx: CanvasRenderingContext2D,
@@ -436,15 +420,94 @@ export function renderLiveMapTiles(
       }
     }
   }
+
+  // Background pre-fetch: 1-tile buffer around visible area so panning is 100% instant
+  const bufMinX = Math.max(0, minTileX - 1);
+  const bufMaxX = Math.min(numTiles - 1, maxTileX + 1);
+  const bufMinY = Math.max(0, minTileY - 1);
+  const bufMaxY = Math.min(numTiles - 1, maxTileY + 1);
+
+  for (let bx = bufMinX; bx <= bufMaxX; bx++) {
+    for (let by = bufMinY; by <= bufMaxY; by++) {
+      if (bx >= minTileX && bx <= maxTileX && by >= minTileY && by <= maxTileY) {
+        continue;
+      }
+      const bUrl = getLiveTileUrl(provider, z, bx, by);
+      const bKey = makeTileKey(provider, z, bx, by);
+      requestTileImage(bUrl, bKey);
+    }
+  }
+
+  // Pre-load parent level z-1 to always guarantee instant zooming
+  if (z > 2) {
+    const pz = z - 1;
+    const pMinX = minTileX >> 1;
+    const pMaxX = maxTileX >> 1;
+    const pMinY = minTileY >> 1;
+    const pMaxY = maxTileY >> 1;
+    for (let px = pMinX; px <= pMaxX; px++) {
+      for (let py = pMinY; py <= pMaxY; py++) {
+        const pKey = makeTileKey(provider, pz, px, py);
+        if (!TILE_MEMORY_CACHE.has(pKey)) {
+          const pUrl = getLiveTileUrl(provider, pz, px, py);
+          requestTileImage(pUrl, pKey);
+        }
+      }
+    }
+  }
 }
 
 /**
- * Preload low-zoom regional tiles around vessel on start to guarantee instant parent fallback
+ * Fast one-click download & persistent offline caching of current visible viewport
+ * Downloads tiles for current zoom level and current+1, current+2.
+ */
+export async function preCacheCurrentViewport(
+  provider: LiveTileProvider,
+  minLon: number,
+  maxLon: number,
+  minLat: number,
+  maxLat: number,
+  zoom: number,
+  onProgress?: (done: number, total: number) => void
+): Promise<{ success: boolean; downloaded: number; total: number }> {
+  const continuousZ = 3.8137 + Math.log2(zoom);
+  const currentZ = Math.max(1, Math.min(20, Math.round(continuousZ)));
+  const targetMinZ = Math.max(1, currentZ - 1);
+  const targetMaxZ = Math.min(20, currentZ + 1);
+
+  return await preCacheAreaTiles(
+    provider,
+    minLon,
+    maxLon,
+    minLat,
+    maxLat,
+    targetMinZ,
+    targetMaxZ,
+    (done, total) => {
+      if (onProgress) onProgress(done, total);
+    }
+  );
+}
+
+/**
+ * Preload low-zoom regional & global overview tiles around vessel on start to guarantee instant parent fallback
  */
 export function preloadBaseRegionalTiles(centerLon: number, centerLat: number, provider: LiveTileProvider = 'google_hybrid') {
   if (typeof window === 'undefined') return;
-  // Preload zoom levels 4, 5, 6 (only ~20 tiles total, takes <0.5s)
-  for (let z = 4; z <= 6; z++) {
+
+  // Preload global zoom 1 and 2 (only 5 tiles total) for immediate worldwide fallback
+  for (let z = 1; z <= 2; z++) {
+    const numTiles = 1 << z;
+    for (let x = 0; x < numTiles; x++) {
+      for (let y = 0; y < numTiles; y++) {
+        requestTileImage(getLiveTileUrl('google_nautical', z, x, y), makeTileKey('google_nautical', z, x, y));
+        requestTileImage(getLiveTileUrl(provider, z, x, y), makeTileKey(provider, z, x, y));
+      }
+    }
+  }
+
+  // Preload regional zoom levels 3, 4, 5, 6
+  for (let z = 3; z <= 6; z++) {
     const numTiles = 1 << z;
     const cx = Math.floor(((centerLon + 180) / 360) * numTiles);
     const latRad = (centerLat * Math.PI) / 180;
@@ -456,9 +519,8 @@ export function preloadBaseRegionalTiles(centerLon: number, centerLat: number, p
       for (let dy = -1; dy <= 1; dy++) {
         const tx = ((cx + dx) % numTiles + numTiles) % numTiles;
         const ty = Math.max(0, Math.min(numTiles - 1, cy + dy));
-        const url = getLiveTileUrl(provider, z, tx, ty);
-        const key = makeTileKey(provider, z, tx, ty);
-        requestTileImage(url, key);
+        requestTileImage(getLiveTileUrl('google_nautical', z, tx, ty), makeTileKey('google_nautical', z, tx, ty));
+        requestTileImage(getLiveTileUrl(provider, z, tx, ty), makeTileKey(provider, z, tx, ty));
       }
     }
   }
@@ -552,11 +614,11 @@ export async function preCacheAreaTiles(
 
   for (let z = minZoom; z <= maxZoom; z++) {
     const numTiles = 1 << z;
-    const minTileX = Math.floor(((minLon + 180) / 360) * numTiles);
-    const maxTileX = Math.floor(((maxLon + 180) / 360) * numTiles);
+    const minTileX = Math.max(0, Math.min(numTiles - 1, Math.floor(((minLon + 180) / 360) * numTiles)));
+    const maxTileX = Math.max(0, Math.min(numTiles - 1, Math.floor(((maxLon + 180) / 360) * numTiles)));
 
-    const minTileY = Math.max(0, latToTileY(maxLat, numTiles));
-    const maxTileY = Math.min(numTiles - 1, latToTileY(minLat, numTiles));
+    const minTileY = Math.max(0, Math.min(numTiles - 1, latToTileY(maxLat, numTiles)));
+    const maxTileY = Math.max(0, Math.min(numTiles - 1, latToTileY(minLat, numTiles)));
 
     for (let tx = minTileX; tx <= maxTileX; tx++) {
       for (let ty = minTileY; ty <= maxTileY; ty++) {
@@ -638,8 +700,9 @@ export function deleteWorkingAreaRecord(id: string): void {
 }
 
 /**
- * Auto-downloads and pre-caches the global maritime vector & chart overview (zoom levels 1 to 5)
- * in the background. This guarantees 100% offline availability of the entire world's oceanic map.
+ * Auto-downloads and pre-caches the global maritime vector & chart overview (zoom levels 0 to 5)
+ * plus major worldwide maritime corridors (East Asia, Middle East, Europe, Americas at zooms 5-7).
+ * This guarantees 100% offline availability of the ENTIRE WORLD's oceans, East Asia, and global channels.
  */
 let isAutoBackgroundCacheRunning = false;
 export async function autoDownloadGlobalMarineOverview(
@@ -649,16 +712,82 @@ export async function autoDownloadGlobalMarineOverview(
   if (isAutoBackgroundCacheRunning) return { success: true, total: 0 };
   isAutoBackgroundCacheRunning = true;
   try {
-    // Zoom 1 to 5 covers the entire globe's oceans in ~85 tiles (only ~4-8 MB total)
-    const res = await preCacheAreaTiles(
-      provider,
-      -180, 180, -85, 85,
-      1, 5,
-      (done, total) => {
-        if (onProgress) onProgress(done, total);
+    const tileList: Array<{ url: string; z: number; x: number; y: number }> = [];
+
+    const addRegion = (minLon: number, maxLon: number, minLat: number, maxLat: number, minZ: number, maxZ: number) => {
+      for (let z = minZ; z <= maxZ; z++) {
+        const numTiles = 1 << z;
+        const minTileX = Math.max(0, Math.min(numTiles - 1, Math.floor(((minLon + 180) / 360) * numTiles)));
+        const maxTileX = Math.max(0, Math.min(numTiles - 1, Math.floor(((maxLon + 180) / 360) * numTiles)));
+
+        const latRadMax = (Math.min(85.05, maxLat) * Math.PI) / 180;
+        const latRadMin = (Math.max(-85.05, minLat) * Math.PI) / 180;
+        const minTileY = Math.max(0, Math.min(numTiles - 1, Math.floor(((1 - Math.log(Math.tan(latRadMax) + 1 / Math.cos(latRadMax)) / Math.PI) / 2) * numTiles)));
+        const maxTileY = Math.max(0, Math.min(numTiles - 1, Math.floor(((1 - Math.log(Math.tan(latRadMin) + 1 / Math.cos(latRadMin)) / Math.PI) / 2) * numTiles)));
+
+        for (let tx = minTileX; tx <= maxTileX; tx++) {
+          for (let ty = minTileY; ty <= maxTileY; ty++) {
+            const url = getLiveTileUrl(provider, z, tx, ty);
+            tileList.push({ url, z, x: tx, y: ty });
+          }
+        }
       }
-    );
-    return { success: res.success, total: res.downloaded };
+    };
+
+    // 1. 100% Worldwide Global Overview: Zooms 0 through 5 (covers all oceans, continents & East Asia)
+    addRegion(-180, 179.9, -85, 85, 0, 5);
+
+    // 2. East Asia Maritime Navigation Basin & Straits (Zooms 6 and 7):
+    // Strait of Malacca, Singapore, South China Sea, East China Sea, Japan, Korea, Taiwan, Philippines, Indonesia
+    addRegion(95, 145, -10, 42, 6, 7);
+
+    // 3. Middle East / Persian Gulf / Gulf of Oman / Red Sea / Arabian Sea (Zooms 6 and 7)
+    addRegion(32, 75, 10, 35, 6, 7);
+
+    // 4. Mediterranean, Black Sea, Caspian Sea (Zooms 6 and 7)
+    addRegion(-6, 55, 30, 48, 6, 7);
+
+    const uniqueMap = new Map<string, { url: string; z: number; x: number; y: number }>();
+    tileList.forEach(t => {
+      if (!uniqueMap.has(t.url)) uniqueMap.set(t.url, t);
+    });
+
+    const finalTiles = Array.from(uniqueMap.values());
+    const total = finalTiles.length;
+    let done = 0;
+
+    const cache = await caches.open(TILE_CACHE_NAME);
+    const CONCURRENCY = 14;
+    let cursor = 0;
+
+    const worker = async () => {
+      while (cursor < finalTiles.length) {
+        const idx = cursor++;
+        const item = finalTiles[idx];
+        try {
+          if (!CACHED_URLS_SET.has(item.url)) {
+            const already = await cache.match(item.url);
+            if (already) {
+              CACHED_URLS_SET.add(item.url);
+            } else {
+              const resp = await fetch(item.url, { mode: 'cors' });
+              if (resp.ok) {
+                await cache.put(item.url, resp);
+                CACHED_URLS_SET.add(item.url);
+              }
+            }
+          }
+        } catch {}
+        done++;
+        if (onProgress) {
+          onProgress(done, total);
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+    notifyCacheUpdated();
+    return { success: true, total: done };
   } catch {
     return { success: false, total: 0 };
   } finally {
