@@ -171,7 +171,7 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
   const [zoom, setZoom] = useState<number>(55);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [autoFollowVessel, setAutoFollowVessel] = useState<boolean>(false);
+  const [autoFollowVessel, setAutoFollowVessel] = useState<boolean>(true);
   const [cursorCoords, setCursorCoords] = useState<{ lat: number; lon: number } | null>(null);
   
   // Full Screen State
@@ -259,6 +259,9 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
   const touchStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const isDraggingRef = useRef<boolean>(false);
   const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const isPinchingRef = useRef<boolean>(false);
+  const pinchEndTimeRef = useRef<number>(0);
+  const autoReFollowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const zoomRef = useRef<number>(zoom);
   const centerRef = useRef<[number, number]>(center);
   const animPhaseRef = useRef<number>(0);
@@ -276,6 +279,19 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
   useEffect(() => {
     centerRef.current = center;
   }, [center]);
+
+  // Synchronize autoFollowVessel and vessel position refs to eliminate stale closure glitches
+  const autoFollowVesselRef = useRef<boolean>(autoFollowVessel);
+  useEffect(() => {
+    autoFollowVesselRef.current = autoFollowVessel;
+  }, [autoFollowVessel]);
+
+  const vesselLonRef = useRef<number>(vesselLon);
+  const vesselLatRef = useRef<number>(vesselLat);
+  useEffect(() => {
+    vesselLonRef.current = vesselLon;
+    vesselLatRef.current = vesselLat;
+  }, [vesselLon, vesselLat]);
 
   // Persist Map Mode & Provider
   useEffect(() => {
@@ -344,30 +360,36 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isFullscreen]);
 
-  // Auto-center on navigation corridor when navigation starts or target changes
+  // Auto-center and continuously follow vessel when navigation is active or starts
+  const prevIsNavigatingRef = useRef<boolean>(false);
   useEffect(() => {
-    if (navigationSession.isNavigating && targetWaypoint) {
-      const midLon = (vesselLon + targetWaypoint.longitude) / 2;
-      const midLat = (vesselLat + targetWaypoint.latitude) / 2;
-      setCenter([midLon, midLat]);
-      setAutoFollowVessel(false);
-
-      const dist = calculateDistanceNm(vesselLat, vesselLon, targetWaypoint.latitude, targetWaypoint.longitude);
-      if (dist > 180) setZoom(14);
-      else if (dist > 90) setZoom(24);
-      else if (dist > 45) setZoom(38);
-      else if (dist > 20) setZoom(55);
-      else if (dist > 8) setZoom(80);
-      else setZoom(120);
+    if (navigationSession.isNavigating) {
+      if (!prevIsNavigatingRef.current) {
+        // Navigation just started: Lock onto vessel & initialize standard voyage zoom if too far out
+        setAutoFollowVessel(true);
+        autoFollowVesselRef.current = true;
+        setCenter([vesselLon, vesselLat]);
+        centerRef.current = [vesselLon, vesselLat];
+        if (zoomRef.current < 25) {
+          setZoom(55);
+          zoomRef.current = 55;
+        }
+      } else if (autoFollowVesselRef.current) {
+        // Continuous navigation follow (NEVER reset or override user's selected zoom!)
+        setCenter([vesselLon, vesselLat]);
+        centerRef.current = [vesselLon, vesselLat];
+      }
     }
+    prevIsNavigatingRef.current = navigationSession.isNavigating;
   }, [navigationSession.isNavigating, targetWaypoint?.id, vesselLat, vesselLon]);
 
-  // Auto-center on vessel if GPS updates and auto-follow is active
+  // Continuously update center on live GPS fixes whenever auto-follow is active
   useEffect(() => {
-    if (autoFollowVessel && gps.latitude !== null && gps.longitude !== null) {
-      setCenter([gps.longitude, gps.latitude]);
+    if (autoFollowVessel) {
+      setCenter([vesselLon, vesselLat]);
+      centerRef.current = [vesselLon, vesselLat];
     }
-  }, [gps.latitude, gps.longitude, autoFollowVessel]);
+  }, [vesselLon, vesselLat, autoFollowVessel]);
 
 // Web Mercator standard conformal projection formulas (EPSG:3857)
 const lonToMercatorX = (lon: number): number => {
@@ -2132,8 +2154,8 @@ function drawSmoothPolygon(
     setIsDragging(true);
     isDraggingRef.current = true;
     dragStartRef.current = { x: e.clientX, y: e.clientY };
+    touchStartPosRef.current = { x: e.clientX, y: e.clientY };
     setDragStart({ x: e.clientX, y: e.clientY });
-    setAutoFollowVessel(false);
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -2147,6 +2169,25 @@ function drawSmoothPolygon(
     setCursorCoords(coords);
 
     if (!isDraggingRef.current) return;
+
+    // Only disengage auto-follow if user explicitly dragged map away (> 25px)
+    const totalDist = Math.hypot(
+      e.clientX - touchStartPosRef.current.x,
+      e.clientY - touchStartPosRef.current.y
+    );
+    if (totalDist > 25 && autoFollowVesselRef.current) {
+      setAutoFollowVessel(false);
+      autoFollowVesselRef.current = false;
+      if (navigationSession.isNavigating) {
+        if (autoReFollowTimerRef.current) clearTimeout(autoReFollowTimerRef.current);
+        autoReFollowTimerRef.current = setTimeout(() => {
+          setAutoFollowVessel(true);
+          autoFollowVesselRef.current = true;
+          centerRef.current = [vesselLonRef.current, vesselLatRef.current];
+          setCenter([vesselLonRef.current, vesselLatRef.current]);
+        }, 14000);
+      }
+    }
 
     const dx = e.clientX - dragStartRef.current.x;
     const dy = e.clientY - dragStartRef.current.y;
@@ -2175,12 +2216,21 @@ function drawSmoothPolygon(
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    const cursorX = e.clientX - rect.left;
-    const cursorY = e.clientY - rect.top;
-
-    const geoBefore = canvasToGeo(cursorX, cursorY, rect.width, rect.height);
     const zoomFactor = e.deltaY < 0 ? 1.35 : 0.74;
     const newZoom = Math.max(0.4, Math.min(2500000, zoomRef.current * zoomFactor));
+
+    if (autoFollowVesselRef.current) {
+      // Zoom locked on vessel - vessel stays centered and auto-follow remains active!
+      zoomRef.current = newZoom;
+      centerRef.current = [vesselLonRef.current, vesselLatRef.current];
+      setZoom(newZoom);
+      setCenter([vesselLonRef.current, vesselLatRef.current]);
+      return;
+    }
+
+    const cursorX = e.clientX - rect.left;
+    const cursorY = e.clientY - rect.top;
+    const geoBefore = canvasToGeo(cursorX, cursorY, rect.width, rect.height);
 
     const worldPixels = newZoom * 3600;
     const targetPx = lonToMercatorX(geoBefore.lon) * worldPixels;
@@ -2196,7 +2246,6 @@ function drawSmoothPolygon(
     centerRef.current = [newCenterLon, Math.max(-80, Math.min(80, newCenterLat))];
     setZoom(newZoom);
     setCenter(centerRef.current);
-    setAutoFollowVessel(false);
   };
 
   // Comprehensive hit-testing for User Custom Flags (covers pin base, flagpole, triangular pennant, and badge label)
@@ -2232,24 +2281,28 @@ function drawSmoothPolygon(
       if (e.cancelable) e.preventDefault();
 
       if (e.touches.length === 1) {
+        // Prevent accidental single-finger drag right after pinch-to-zoom release
+        if (Date.now() - pinchEndTimeRef.current < 350) {
+          return;
+        }
         const t = e.touches[0];
         dragStartRef.current = { x: t.clientX, y: t.clientY };
         touchStartPosRef.current = { x: t.clientX, y: t.clientY };
         touchStartTimeRef.current = Date.now();
         isDraggingRef.current = true;
         setIsDragging(true);
-        setAutoFollowVessel(false);
 
         // Calculate cursor coordinates on touch
         const rect = canvas.getBoundingClientRect();
         const coords = canvasToGeo(t.clientX - rect.left, t.clientY - rect.top, rect.width, rect.height);
         setCursorCoords(coords);
-      } else if (e.touches.length === 2) {
+      } else if (e.touches.length >= 2) {
         const dist = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
         );
         touchDistanceRef.current = dist;
+        isPinchingRef.current = true;
         isDraggingRef.current = false;
         setIsDragging(false);
       }
@@ -2258,7 +2311,10 @@ function drawSmoothPolygon(
     const handleNativeTouchMove = (e: TouchEvent) => {
       if (e.cancelable) e.preventDefault();
 
-      if (e.touches.length === 2 && touchDistanceRef.current !== null) {
+      // 1. Two-finger pinch to zoom: Scale smoothly and maintain vessel centering without disengaging follow
+      if (e.touches.length >= 2 && touchDistanceRef.current !== null) {
+        isPinchingRef.current = true;
+        isDraggingRef.current = false;
         const newDist = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
@@ -2267,13 +2323,44 @@ function drawSmoothPolygon(
           const factor = newDist / touchDistanceRef.current;
           const newZoom = Math.max(0.4, Math.min(2500000, zoomRef.current * factor));
           zoomRef.current = newZoom;
+          setZoom(newZoom);
+          if (autoFollowVesselRef.current) {
+            centerRef.current = [vesselLonRef.current, vesselLatRef.current];
+            setCenter([vesselLonRef.current, vesselLatRef.current]);
+          }
         }
         touchDistanceRef.current = newDist;
         return;
       }
 
+      // Ignore single-finger touch moves if user was just pinching
+      if (isPinchingRef.current || Date.now() - pinchEndTimeRef.current < 350) {
+        return;
+      }
+
+      // 2. Single-finger deliberate pan
       if (e.touches.length === 1 && isDraggingRef.current) {
         const t = e.touches[0];
+        const distFromStart = Math.hypot(
+          t.clientX - touchStartPosRef.current.x,
+          t.clientY - touchStartPosRef.current.y
+        );
+
+        // Only disengage auto-follow if user explicitly dragged map away (> 25px)
+        if (distFromStart > 25 && autoFollowVesselRef.current) {
+          setAutoFollowVessel(false);
+          autoFollowVesselRef.current = false;
+          if (navigationSession.isNavigating) {
+            if (autoReFollowTimerRef.current) clearTimeout(autoReFollowTimerRef.current);
+            autoReFollowTimerRef.current = setTimeout(() => {
+              setAutoFollowVessel(true);
+              autoFollowVesselRef.current = true;
+              centerRef.current = [vesselLonRef.current, vesselLatRef.current];
+              setCenter([vesselLonRef.current, vesselLatRef.current]);
+            }, 14000);
+          }
+        }
+
         const dx = t.clientX - dragStartRef.current.x;
         const dy = t.clientY - dragStartRef.current.y;
 
@@ -2303,14 +2390,23 @@ function drawSmoothPolygon(
         setZoom(zoomRef.current);
       }
 
-      // Check if this was a fast tap (under 350ms, moved < 15px)
+      // Check if all touches released
       if (e.touches.length === 0) {
+        if (isPinchingRef.current) {
+          isPinchingRef.current = false;
+          pinchEndTimeRef.current = Date.now();
+        }
+        touchDistanceRef.current = null;
+        isDraggingRef.current = false;
+        setIsDragging(false);
+
+        // Check if this was a fast tap (under 350ms, moved < 15px) and NOT a pinch release
         const timeDiff = Date.now() - touchStartTimeRef.current;
         const lastPos = dragStartRef.current;
         const startPos = touchStartPosRef.current;
         const distMoved = Math.hypot(lastPos.x - startPos.x, lastPos.y - startPos.y);
 
-        if (timeDiff < 350 && distMoved < 15) {
+        if (timeDiff < 350 && distMoved < 15 && Date.now() - pinchEndTimeRef.current > 350) {
           const rect = canvas.getBoundingClientRect();
           const clickX = startPos.x - rect.left;
           const clickY = startPos.y - rect.top;
@@ -2389,22 +2485,26 @@ function drawSmoothPolygon(
 
             if (!handledWaypoint) {
               if (isDoubleTap) {
-                // Mobile double-tap zoom smoothly towards tapped point
-                const geoBefore = canvasToGeo(clickX, clickY, rect.width, rect.height);
                 const newZoom = Math.min(2500000, zoomRef.current * 2.0);
-                const worldPixels = newZoom * 3600;
-                const targetPx = lonToMercatorX(geoBefore.lon) * worldPixels;
-                const targetPy = latToMercatorY(geoBefore.lat) * worldPixels;
-                const newCx = targetPx - (clickX - rect.width / 2);
-                const newCy = targetPy - (clickY - rect.height / 2);
-                const newCenterLon = mercatorXToLon(newCx / worldPixels);
-                const newCenterLat = mercatorYToLat(newCy / worldPixels);
-
                 zoomRef.current = newZoom;
-                centerRef.current = [newCenterLon, Math.max(-80, Math.min(80, newCenterLat))];
                 setZoom(newZoom);
-                setCenter(centerRef.current);
-                setAutoFollowVessel(false);
+
+                if (autoFollowVesselRef.current) {
+                  centerRef.current = [vesselLonRef.current, vesselLatRef.current];
+                  setCenter([vesselLonRef.current, vesselLatRef.current]);
+                } else {
+                  const geoBefore = canvasToGeo(clickX, clickY, rect.width, rect.height);
+                  const worldPixels = newZoom * 3600;
+                  const targetPx = lonToMercatorX(geoBefore.lon) * worldPixels;
+                  const targetPy = latToMercatorY(geoBefore.lat) * worldPixels;
+                  const newCx = targetPx - (clickX - rect.width / 2);
+                  const newCy = targetPy - (clickY - rect.height / 2);
+                  const newCenterLon = mercatorXToLon(newCx / worldPixels);
+                  const newCenterLat = mercatorYToLat(newCy / worldPixels);
+
+                  centerRef.current = [newCenterLon, Math.max(-80, Math.min(80, newCenterLat))];
+                  setCenter(centerRef.current);
+                }
                 lastTapRef.current = null;
               } else {
                 lastTapRef.current = { time: now, x: clickX, y: clickY };
@@ -2417,10 +2517,19 @@ function drawSmoothPolygon(
         setIsDragging(false);
         touchDistanceRef.current = null;
       } else if (e.touches.length === 1) {
-        const t = e.touches[0];
-        dragStartRef.current = { x: t.clientX, y: t.clientY };
-        isDraggingRef.current = true;
-        setIsDragging(true);
+        // One finger remains after lifting second finger from pinch
+        if (isPinchingRef.current) {
+          isPinchingRef.current = false;
+          pinchEndTimeRef.current = Date.now();
+          isDraggingRef.current = false;
+          setIsDragging(false);
+        } else if (Date.now() - pinchEndTimeRef.current > 350) {
+          const t = e.touches[0];
+          dragStartRef.current = { x: t.clientX, y: t.clientY };
+          touchStartPosRef.current = { x: t.clientX, y: t.clientY };
+          isDraggingRef.current = true;
+          setIsDragging(true);
+        }
         touchDistanceRef.current = null;
       }
     };
@@ -2530,22 +2639,28 @@ function drawSmoothPolygon(
       const { lat, lon } = canvasToGeo(x, y, rect.width, rect.height);
       onMapClickAddWaypoint(lat, lon);
     } else if (!isAddWaypointMode) {
-      // Fluid double-click zoom directly towards the clicked point (NEVER adds a waypoint!)
-      const geoBefore = canvasToGeo(x, y, rect.width, rect.height);
+      // Fluid double-click zoom (NEVER adds a waypoint!)
       const newZoom = Math.min(2500000, zoomRef.current * 2.0);
-      const worldPixels = newZoom * 3600;
-      const targetPx = lonToMercatorX(geoBefore.lon) * worldPixels;
-      const targetPy = latToMercatorY(geoBefore.lat) * worldPixels;
-      const newCx = targetPx - (x - rect.width / 2);
-      const newCy = targetPy - (y - rect.height / 2);
-      const newCenterLon = mercatorXToLon(newCx / worldPixels);
-      const newCenterLat = mercatorYToLat(newCy / worldPixels);
+      if (autoFollowVesselRef.current) {
+        zoomRef.current = newZoom;
+        centerRef.current = [vesselLonRef.current, vesselLatRef.current];
+        setZoom(newZoom);
+        setCenter([vesselLonRef.current, vesselLatRef.current]);
+      } else {
+        const geoBefore = canvasToGeo(x, y, rect.width, rect.height);
+        const worldPixels = newZoom * 3600;
+        const targetPx = lonToMercatorX(geoBefore.lon) * worldPixels;
+        const targetPy = latToMercatorY(geoBefore.lat) * worldPixels;
+        const newCx = targetPx - (x - rect.width / 2);
+        const newCy = targetPy - (y - rect.height / 2);
+        const newCenterLon = mercatorXToLon(newCx / worldPixels);
+        const newCenterLat = mercatorYToLat(newCy / worldPixels);
 
-      zoomRef.current = newZoom;
-      centerRef.current = [newCenterLon, Math.max(-80, Math.min(80, newCenterLat))];
-      setZoom(newZoom);
-      setCenter(centerRef.current);
-      setAutoFollowVessel(false);
+        zoomRef.current = newZoom;
+        centerRef.current = [newCenterLon, Math.max(-80, Math.min(80, newCenterLat))];
+        setZoom(newZoom);
+        setCenter(centerRef.current);
+      }
     }
   };
 
@@ -2585,6 +2700,7 @@ function drawSmoothPolygon(
     const midLat = (minLat + maxLat) / 2;
     setCenter([midLon, midLat]);
     setAutoFollowVessel(false);
+    autoFollowVesselRef.current = false;
 
     const dLon = Math.max(0.02, maxLon - minLon);
     const dLat = Math.max(0.02, maxLat - minLat);
@@ -2601,8 +2717,13 @@ function drawSmoothPolygon(
 
   const centerOnVessel = () => {
     setCenter([vesselLon, vesselLat]);
+    centerRef.current = [vesselLon, vesselLat];
     setAutoFollowVessel(true);
-    setZoom(55);
+    autoFollowVesselRef.current = true;
+    if (zoomRef.current < 15) {
+      setZoom(45);
+      zoomRef.current = 45;
+    }
   };
 
   const centerOnRoute = () => {
@@ -2616,6 +2737,7 @@ function drawSmoothPolygon(
     const midLat = (vesselLat + targetWaypoint.latitude) / 2;
     setCenter([midLon, midLat]);
     setAutoFollowVessel(false);
+    autoFollowVesselRef.current = false;
   };
 
   // Live Navigation Values for Fullscreen HUD & Bottom Telemetry Bar
