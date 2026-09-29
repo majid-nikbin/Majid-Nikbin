@@ -352,18 +352,52 @@ export function renderLiveMapTiles(
 
   // Tile index bounds
   const numTiles = 1 << z;
-  const minTileX = Math.floor(((minLon + 180) / 360) * numTiles);
-  const maxTileX = Math.floor(((maxLon + 180) / 360) * numTiles);
 
   const latToTileY = (lat: number) => {
-    const latRad = (lat * Math.PI) / 180;
+    const clampedLat = Math.max(-85.0511, Math.min(85.0511, isNaN(lat) ? 0 : lat));
+    const latRad = (clampedLat * Math.PI) / 180;
+    const sin = Math.sin(latRad);
     return Math.floor(
-      ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * numTiles
+      ((1 - Math.log((1 + sin) / (1 - sin)) / (2 * Math.PI)) / 2) * numTiles
     );
   };
 
-  const minTileY = Math.max(0, latToTileY(maxLat));
-  const maxTileY = Math.min(numTiles - 1, latToTileY(minLat));
+  const clampedMaxLat = Math.max(-85.0511, Math.min(85.0511, maxLat));
+  const clampedMinLat = Math.max(-85.0511, Math.min(85.0511, minLat));
+  let minTileY = latToTileY(clampedMaxLat);
+  let maxTileY = latToTileY(clampedMinLat);
+  if (minTileY > maxTileY) {
+    const temp = minTileY;
+    minTileY = maxTileY;
+    maxTileY = temp;
+  }
+
+  let minTileX = Math.floor(((minLon + 180) / 360) * numTiles);
+  let maxTileX = Math.floor(((maxLon + 180) / 360) * numTiles);
+  if (minTileX > maxTileX) {
+    const temp = minTileX;
+    minTileX = maxTileX;
+    maxTileX = temp;
+  }
+
+  // Safety guard against runaway loops when zoomed out or across antimeridian
+  if (maxTileX - minTileX > 32) {
+    const centerGeo = canvasToGeo(width / 2, height / 2, width, height);
+    const centerTileX = Math.floor(((centerGeo.lon + 180) / 360) * numTiles);
+    minTileX = Math.max(0, centerTileX - 16);
+    maxTileX = Math.min(numTiles - 1, centerTileX + 16);
+  }
+  if (maxTileY - minTileY > 32) {
+    const centerGeo = canvasToGeo(width / 2, height / 2, width, height);
+    const centerTileY = latToTileY(centerGeo.lat);
+    minTileY = Math.max(0, centerTileY - 16);
+    maxTileY = Math.min(numTiles - 1, centerTileY + 16);
+  }
+
+  minTileX = Math.max(0, Math.min(numTiles - 1, minTileX));
+  maxTileX = Math.max(0, Math.min(numTiles - 1, maxTileX));
+  minTileY = Math.max(0, Math.min(numTiles - 1, minTileY));
+  maxTileY = Math.max(0, Math.min(numTiles - 1, maxTileY));
 
   // Render each visible tile
   for (let tx = minTileX; tx <= maxTileX; tx++) {
@@ -372,8 +406,10 @@ export function renderLiveMapTiles(
       const pTopLeft = geoToCanvas(bounds.minLon, bounds.maxLat, width, height);
       const pBottomRight = geoToCanvas(bounds.maxLon, bounds.minLat, width, height);
 
-      const tileWidth = Math.ceil(pBottomRight.x - pTopLeft.x) + 0.5;
-      const tileHeight = Math.ceil(pBottomRight.y - pTopLeft.y) + 0.5;
+      const drawX = Math.min(pTopLeft.x, pBottomRight.x);
+      const drawY = Math.min(pTopLeft.y, pBottomRight.y);
+      const tileWidth = Math.max(1, Math.ceil(Math.abs(pBottomRight.x - pTopLeft.x))) + 0.5;
+      const tileHeight = Math.max(1, Math.ceil(Math.abs(pBottomRight.y - pTopLeft.y))) + 0.5;
 
       const url = getLiveTileUrl(provider, z, tx, ty);
       const key = makeTileKey(provider, z, tx, ty);
@@ -386,7 +422,7 @@ export function renderLiveMapTiles(
 
       if (img) {
         // Direct high-resolution tile draw
-        ctx.drawImage(img, pTopLeft.x, pTopLeft.y, tileWidth, tileHeight);
+        ctx.drawImage(img, drawX, drawY, tileWidth, tileHeight);
       } else {
         // Multi-level parent overzoom fallback (z-1 down to z-6)
         let drawnFallback = false;
@@ -404,7 +440,7 @@ export function renderLiveMapTiles(
             const mask = (1 << shift) - 1;
             const sx = (tx & mask) * subSize;
             const sy = (ty & mask) * subSize;
-            ctx.drawImage(parentImg, sx, sy, subSize, subSize, pTopLeft.x, pTopLeft.y, tileWidth, tileHeight);
+            ctx.drawImage(parentImg, sx, sy, subSize, subSize, drawX, drawY, tileWidth, tileHeight);
             drawnFallback = true;
             break;
           }
@@ -417,7 +453,7 @@ export function renderLiveMapTiles(
         const seamarkKey = `seamark:${z}:${tx}:${ty}`;
         const seamarkImg = requestTileImage(seamarkUrl, seamarkKey, onTileLoaded);
         if (seamarkImg) {
-          ctx.drawImage(seamarkImg, pTopLeft.x, pTopLeft.y, tileWidth, tileHeight);
+          ctx.drawImage(seamarkImg, drawX, drawY, tileWidth, tileHeight);
         }
       }
     }

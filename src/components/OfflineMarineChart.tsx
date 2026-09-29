@@ -482,7 +482,8 @@ const mercatorXToLon = (x: number): number => {
 };
 
 const mercatorYToLat = (y: number): number => {
-  const y2 = (180 - y * 360) * Math.PI / 180;
+  const clampedY = Math.max(0.0001, Math.min(0.9999, y));
+  const y2 = (180 - clampedY * 360) * Math.PI / 180;
   return (180 / Math.PI) * (2 * Math.atan(Math.exp(y2)) - Math.PI / 2);
 };
 
@@ -2339,24 +2340,7 @@ function drawSmoothPolygon(
     const dy = e.clientY - dragStartRef.current.y;
     dragStartRef.current = { x: e.clientX, y: e.clientY };
 
-    if (autoFollowVesselRef.current) {
-      // Reposition vessel on screen while retaining active continuous GPS tracking!
-      const currentW = rect.width || 800;
-      const currentH = rect.height || 600;
-
-      const newOffsetX = Math.max(-currentW * 0.42, Math.min(currentW * 0.42, customAnchorOffsetRef.current.x + dx));
-      const newOffsetY = Math.max(-currentH * 0.42, Math.min(currentH * 0.42, customAnchorOffsetRef.current.y + dy));
-
-      const newOffset = { x: newOffsetX, y: newOffsetY };
-      customAnchorOffsetRef.current = newOffset;
-      setCustomAnchorOffset(newOffset);
-      setVesselPlacement('custom');
-      vesselPlacementRef.current = 'custom';
-      screenAnchorOffsetRef.current = newOffset;
-      return;
-    }
-
-    // Free Browse mode: pan geographically, respecting map rotation
+    // Pan geographically across the world, respecting map rotation
     const rot = mapRotationRadRef.current;
     const cosR = Math.cos(rot);
     const sinR = Math.sin(rot);
@@ -2370,15 +2354,22 @@ function drawSmoothPolygon(
     const newCy = cy - dy0;
     const newLat = mercatorYToLat(newCy / worldPixels);
 
-    centerRef.current = [centerRef.current[0] - dLon, Math.max(-80, Math.min(80, newLat))];
-    dragStartRef.current = { x: e.clientX, y: e.clientY };
+    let newLon = centerRef.current[0] - dLon;
+    newLon = ((newLon + 180) % 360 + 360) % 360 - 180;
+
+    centerRef.current = [newLon, Math.max(-85, Math.min(85, newLat))];
+
+    if (autoFollowVesselRef.current) {
+      autoFollowVesselRef.current = false;
+      setAutoFollowVessel(false);
+    }
   };
 
   const handleMouseUp = () => {
     if (isDraggingRef.current) {
       isDraggingRef.current = false;
       setIsDragging(false);
-      setCenter(centerRef.current);
+      setCenter([centerRef.current[0], centerRef.current[1]]);
     }
   };
 
@@ -2389,15 +2380,6 @@ function drawSmoothPolygon(
     const rect = canvas.getBoundingClientRect();
     const zoomFactor = e.deltaY < 0 ? 1.35 : 0.74;
     const newZoom = Math.max(0.4, Math.min(2500000, zoomRef.current * zoomFactor));
-
-    if (autoFollowVesselRef.current) {
-      // Zoom locked on vessel - vessel stays centered and auto-follow remains active!
-      zoomRef.current = newZoom;
-      centerRef.current = [vesselLonRef.current, vesselLatRef.current];
-      setZoom(newZoom);
-      setCenter([vesselLonRef.current, vesselLatRef.current]);
-      return;
-    }
 
     const cursorX = e.clientX - rect.left;
     const cursorY = e.clientY - rect.top;
@@ -2410,13 +2392,19 @@ function drawSmoothPolygon(
     const newCx = targetPx - (cursorX - rect.width / 2);
     const newCy = targetPy - (cursorY - rect.height / 2);
 
-    const newCenterLon = mercatorXToLon(newCx / worldPixels);
+    let newCenterLon = mercatorXToLon(newCx / worldPixels);
+    newCenterLon = ((newCenterLon + 180) % 360 + 360) % 360 - 180;
     const newCenterLat = mercatorYToLat(newCy / worldPixels);
 
     zoomRef.current = newZoom;
-    centerRef.current = [newCenterLon, Math.max(-80, Math.min(80, newCenterLat))];
+    centerRef.current = [newCenterLon, Math.max(-85, Math.min(85, newCenterLat))];
     setZoom(newZoom);
-    setCenter(centerRef.current);
+    setCenter([newCenterLon, Math.max(-85, Math.min(85, newCenterLat))]);
+
+    if (autoFollowVesselRef.current) {
+      autoFollowVesselRef.current = false;
+      setAutoFollowVessel(false);
+    }
   };
 
   // Comprehensive hit-testing for User Custom Flags (covers pin base, flagpole, triangular pennant, and badge label)
@@ -2541,36 +2529,14 @@ function drawSmoothPolygon(
         return;
       }
 
-      // 2. Single-finger deliberate pan
+      // 2. Single-finger deliberate pan across the world
       if (e.touches.length === 1 && isDraggingRef.current) {
         const t = e.touches[0];
         const dx = t.clientX - dragStartRef.current.x;
         const dy = t.clientY - dragStartRef.current.y;
         dragStartRef.current = { x: t.clientX, y: t.clientY };
 
-        const rect = canvas.getBoundingClientRect();
-
-        if (autoFollowVesselRef.current) {
-          // Reposition vessel on screen while retaining active continuous GPS tracking!
-          const currentW = rect.width || 800;
-          const currentH = rect.height || 600;
-
-          const newOffsetX = Math.max(-currentW * 0.42, Math.min(currentW * 0.42, customAnchorOffsetRef.current.x + dx));
-          const newOffsetY = Math.max(-currentH * 0.42, Math.min(currentH * 0.42, customAnchorOffsetRef.current.y + dy));
-
-          const newOffset = { x: newOffsetX, y: newOffsetY };
-          customAnchorOffsetRef.current = newOffset;
-          setCustomAnchorOffset(newOffset);
-          setVesselPlacement('custom');
-          vesselPlacementRef.current = 'custom';
-          screenAnchorOffsetRef.current = newOffset;
-
-          const coords = canvasToGeo(t.clientX - rect.left, t.clientY - rect.top, rect.width, rect.height);
-          setCursorCoords(coords);
-          return;
-        }
-
-        // Free browse touch pan, respecting map rotation
+        // Pan geographically across the world, respecting map rotation
         const rot = mapRotationRadRef.current;
         const cosR = Math.cos(rot);
         const sinR = Math.sin(rot);
@@ -2584,8 +2550,17 @@ function drawSmoothPolygon(
         const newCy = cy - dy0;
         const newLat = mercatorYToLat(newCy / worldPixels);
 
-        centerRef.current = [centerRef.current[0] - dLon, Math.max(-80, Math.min(80, newLat))];
+        let newLon = centerRef.current[0] - dLon;
+        newLon = ((newLon + 180) % 360 + 360) % 360 - 180;
 
+        centerRef.current = [newLon, Math.max(-85, Math.min(85, newLat))];
+
+        if (autoFollowVesselRef.current) {
+          autoFollowVesselRef.current = false;
+          setAutoFollowVessel(false);
+        }
+
+        const rect = canvas.getBoundingClientRect();
         const coords = canvasToGeo(t.clientX - rect.left, t.clientY - rect.top, rect.width, rect.height);
         setCursorCoords(coords);
       }
@@ -2597,7 +2572,7 @@ function drawSmoothPolygon(
       if (isDraggingRef.current) {
         isDraggingRef.current = false;
         setIsDragging(false);
-        setCenter(centerRef.current);
+        setCenter([centerRef.current[0], centerRef.current[1]]);
         setZoom(zoomRef.current);
       }
 
