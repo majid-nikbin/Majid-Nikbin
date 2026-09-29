@@ -41,7 +41,9 @@ import {
   Search,
   Sparkles,
   Square,
-  RefreshCw
+  RefreshCw,
+  RotateCcw,
+  RotateCw
 } from 'lucide-react';
 import { GpsData, CompassData, MarineRoute, Waypoint, NavigationSession, UserTag, WorkingAreaRecord } from '../types';
 import { UserTagModal } from './UserTagModal';
@@ -173,6 +175,15 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
   const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [autoFollowVessel, setAutoFollowVessel] = useState<boolean>(true);
   const [cursorCoords, setCursorCoords] = useState<{ lat: number; lon: number } | null>(null);
+
+  // Map Orientation: 'north-up' (normal), 'free' (custom two-finger rotation during navigation)
+  const [mapOrientation, setMapOrientation] = useState<'north-up' | 'head-up' | 'free'>('north-up');
+  const [customRotationDeg, setCustomRotationDeg] = useState<number>(0);
+
+  // Vessel Screen Placement: 'center' (default), 'forward', or 'custom' (dragged by operator)
+  const [vesselPlacement, setVesselPlacement] = useState<'center' | 'forward' | 'custom'>('center');
+  const [customAnchorOffset, setCustomAnchorOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [navHintMessage, setNavHintMessage] = useState<string | null>(null);
   
   // Full Screen State
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
@@ -270,6 +281,40 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
   if (gps.heading !== null && !isNaN(gps.heading)) {
     lastValidGpsHeadingRef.current = gps.heading;
   }
+  const validGpsHeading = (gps.heading !== null && !isNaN(gps.heading)) ? gps.heading : null;
+  const currentHeading = activeHeadingMode === 'gps'
+    ? (validGpsHeading ?? lastValidGpsHeadingRef.current ?? (compass.trueHeading || compass.magneticHeading || 0))
+    : (compass.trueHeading || compass.magneticHeading || validGpsHeading || 0);
+  const currentHeadingRef = useRef<number>(currentHeading);
+  currentHeadingRef.current = currentHeading;
+
+  const mapOrientationRef = useRef<'north-up' | 'head-up' | 'free'>(mapOrientation);
+  const customRotationDegRef = useRef<number>(customRotationDeg);
+  const vesselPlacementRef = useRef<'center' | 'forward' | 'custom'>(vesselPlacement);
+  const customAnchorOffsetRef = useRef<{ x: number; y: number }>(customAnchorOffset);
+  const mapRotationRadRef = useRef<number>(0);
+  const screenAnchorOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const touchAngleRef = useRef<number | null>(null);
+  const navigationSessionRef = useRef<NavigationSession>(navigationSession);
+  useEffect(() => {
+    navigationSessionRef.current = navigationSession;
+  }, [navigationSession]);
+
+  useEffect(() => {
+    mapOrientationRef.current = mapOrientation;
+  }, [mapOrientation]);
+
+  useEffect(() => {
+    customRotationDegRef.current = customRotationDeg;
+  }, [customRotationDeg]);
+
+  useEffect(() => {
+    vesselPlacementRef.current = vesselPlacement;
+  }, [vesselPlacement]);
+
+  useEffect(() => {
+    customAnchorOffsetRef.current = customAnchorOffset;
+  }, [customAnchorOffset]);
 
   // Keep zoom and center refs in sync
   useEffect(() => {
@@ -360,12 +405,14 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isFullscreen]);
 
-  // Auto-center and continuously follow vessel when navigation is active or starts
+  // Auto-center and continuously follow vessel when navigation is active or starts; reset to normal when stopped
   const prevIsNavigatingRef = useRef<boolean>(false);
+  const hintTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (navigationSession.isNavigating) {
       if (!prevIsNavigatingRef.current) {
-        // Navigation just started: Lock onto vessel & initialize standard voyage zoom if too far out
+        // Navigation just started: Lock onto vessel & follow
         setAutoFollowVessel(true);
         autoFollowVesselRef.current = true;
         setCenter([vesselLon, vesselLat]);
@@ -374,11 +421,39 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
           setZoom(55);
           zoomRef.current = 55;
         }
+
+        // Show English hint on the map for 3 seconds then automatically disappear
+        setNavHintMessage('Navigation Started: Use 2 fingers to rotate chart');
+        if (hintTimeoutRef.current) clearTimeout(hintTimeoutRef.current);
+        hintTimeoutRef.current = setTimeout(() => {
+          setNavHintMessage(null);
+        }, 3000);
       } else if (autoFollowVesselRef.current) {
-        // Continuous navigation follow (NEVER reset or override user's selected zoom!)
+        // Continuous navigation follow (NEVER reset or override user's selected zoom or custom placement!)
         setCenter([vesselLon, vesselLat]);
         centerRef.current = [vesselLon, vesselLat];
       }
+    } else if (prevIsNavigatingRef.current) {
+      // Navigation just STOPPED: Reset map to normal (North-Up, center vessel, zero rotation offset)
+      if (hintTimeoutRef.current) {
+        clearTimeout(hintTimeoutRef.current);
+        hintTimeoutRef.current = null;
+      }
+      setNavHintMessage(null);
+      setMapOrientation('north-up');
+      mapOrientationRef.current = 'north-up';
+      setCustomRotationDeg(0);
+      customRotationDegRef.current = 0;
+      mapRotationRadRef.current = 0;
+      setVesselPlacement('center');
+      vesselPlacementRef.current = 'center';
+      setCustomAnchorOffset({ x: 0, y: 0 });
+      customAnchorOffsetRef.current = { x: 0, y: 0 };
+      screenAnchorOffsetRef.current = { x: 0, y: 0 };
+      setCenter([vesselLon, vesselLat]);
+      centerRef.current = [vesselLon, vesselLat];
+      setAutoFollowVessel(true);
+      autoFollowVesselRef.current = true;
     }
     prevIsNavigatingRef.current = navigationSession.isNavigating;
   }, [navigationSession.isNavigating, targetWaypoint?.id, vesselLat, vesselLon]);
@@ -454,26 +529,61 @@ function drawSmoothPolygon(
     const px = lonToMercatorX(curCenter[0] + dLon) * worldPixels;
     const py = latToMercatorY(lat) * worldPixels;
 
-    const x = width / 2 + (px - cx);
-    const y = height / 2 + (py - cy);
+    const focusX = width / 2 + screenAnchorOffsetRef.current.x;
+    const focusY = height / 2 + screenAnchorOffsetRef.current.y;
+
+    const x = focusX + (px - cx);
+    const y = focusY + (py - cy);
     return { x, y };
   }, []);
 
-  const canvasToGeo = useCallback((x: number, y: number, width: number, height: number) => {
+  const canvasToGeo = useCallback((screenX: number, screenY: number, width: number, height: number) => {
     const curZoom = zoomRef.current;
     const curCenter = centerRef.current;
     const worldPixels = curZoom * 3600;
     const cx = lonToMercatorX(curCenter[0]) * worldPixels;
     const cy = latToMercatorY(curCenter[1]) * worldPixels;
 
-    const px = cx + (x - width / 2);
-    const py = cy + (y - height / 2);
+    const focusX = width / 2 + screenAnchorOffsetRef.current.x;
+    const focusY = height / 2 + screenAnchorOffsetRef.current.y;
+
+    const dx = screenX - focusX;
+    const dy = screenY - focusY;
+    const rot = mapRotationRadRef.current;
+    let unrotX = screenX;
+    let unrotY = screenY;
+    if (rot !== 0) {
+      const cosR = Math.cos(rot);
+      const sinR = Math.sin(rot);
+      // Inverse rotation around focus point:
+      unrotX = focusX + dx * cosR + dy * sinR;
+      unrotY = focusY - dx * sinR + dy * cosR;
+    }
+
+    const px = cx + (unrotX - focusX);
+    const py = cy + (unrotY - focusY);
 
     const normX = ((px / worldPixels) % 1 + 1) % 1;
     const lon = mercatorXToLon(normX);
     const lat = mercatorYToLat(py / worldPixels);
     return { lat, lon };
   }, []);
+
+  const geoToScreen = useCallback((lon: number, lat: number, width: number, height: number) => {
+    const pt = geoToCanvas(lon, lat, width, height);
+    const rot = mapRotationRadRef.current;
+    if (rot === 0) return pt;
+    const focusX = width / 2 + screenAnchorOffsetRef.current.x;
+    const focusY = height / 2 + screenAnchorOffsetRef.current.y;
+    const dx = pt.x - focusX;
+    const dy = pt.y - focusY;
+    const cosR = Math.cos(rot);
+    const sinR = Math.sin(rot);
+    return {
+      x: focusX + dx * cosR - dy * sinR,
+      y: focusY + dx * sinR + dy * cosR,
+    };
+  }, [geoToCanvas]);
 
   const triggerTileRedraw = useCallback(() => {
     renderTriggerRef.current = (renderTriggerRef.current + 1) % 1000;
@@ -706,6 +816,47 @@ function drawSmoothPolygon(
     const width = canvas.width / dpr;
     const height = canvas.height / dpr;
 
+    // Calculate effective screen anchor offset
+    let targetOffsetX = 0;
+    let targetOffsetY = 0;
+    if (vesselPlacementRef.current === 'forward') {
+      targetOffsetX = 0;
+      targetOffsetY = height * 0.22; // Vessel situated at 72% down screen for forward look-ahead
+    } else if (vesselPlacementRef.current === 'center') {
+      targetOffsetX = 0;
+      targetOffsetY = 0;
+    } else {
+      targetOffsetX = customAnchorOffsetRef.current.x;
+      targetOffsetY = customAnchorOffsetRef.current.y;
+    }
+
+    screenAnchorOffsetRef.current.x += (targetOffsetX - screenAnchorOffsetRef.current.x) * 0.25;
+    screenAnchorOffsetRef.current.y += (targetOffsetY - screenAnchorOffsetRef.current.y) * 0.25;
+
+    // Calculate effective map rotation - strictly active ONLY when navigation session is running!
+    // Outside navigation, map is completely locked to normal North-Up (0 rad) so phone movement never rotates it!
+    let targetRotRad = 0;
+    if (navigationSessionRef.current.isNavigating) {
+      if (mapOrientationRef.current === 'head-up') {
+        targetRotRad = (-currentHeadingRef.current * Math.PI) / 180;
+      } else if (mapOrientationRef.current === 'free') {
+        targetRotRad = (customRotationDegRef.current * Math.PI) / 180;
+      } else {
+        targetRotRad = 0;
+      }
+    } else {
+      targetRotRad = 0;
+    }
+
+    let rotDiff = targetRotRad - mapRotationRadRef.current;
+    while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
+    while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
+    if (Math.abs(rotDiff) > 0.001) {
+      mapRotationRadRef.current += rotDiff * 0.25;
+    } else {
+      mapRotationRadRef.current = targetRotRad;
+    }
+
     animPhaseRef.current = (animPhaseRef.current + 0.04) % (Math.PI * 2);
     const animPhase = animPhaseRef.current;
 
@@ -715,6 +866,17 @@ function drawSmoothPolygon(
     // 1. Deep Oceanic Water Base Fill (Admiralty Cyan in Vector Mode, Deep Navy in Satellite Mode)
     ctx.fillStyle = isNightMode ? '#080404' : (mapMode === 'vector' ? '#aad3df' : '#071626');
     ctx.fillRect(0, 0, width, height);
+
+    // Dynamic cull margin for rotated canvas
+    const cullPad = Math.max(width, height) * 0.75 + 100;
+
+    // BEGIN ROTATED MAP CONTEXT
+    ctx.save();
+    const focusX = width / 2 + screenAnchorOffsetRef.current.x;
+    const focusY = height / 2 + screenAnchorOffsetRef.current.y;
+    ctx.translate(focusX, focusY);
+    ctx.rotate(mapRotationRadRef.current);
+    ctx.translate(-focusX, -focusY);
 
     // 2. Draw World Landmass Polygons & Outer Coastlines (Fallback for Satellite mode only)
     if (mapMode !== 'vector') {
@@ -732,7 +894,7 @@ function drawSmoothPolygon(
           if (pt.y < minY) minY = pt.y;
           if (pt.y > maxY) maxY = pt.y;
         }
-        if (maxX < -80 || minX > width + 80 || maxY < -80 || minY > height + 80) {
+        if (maxX < -cullPad || minX > width + cullPad || maxY < -cullPad || minY > height + cullPad) {
           return;
         }
 
@@ -768,7 +930,7 @@ function drawSmoothPolygon(
           if (pt.y < minY) minY = pt.y;
           if (pt.y > maxY) maxY = pt.y;
         }
-        if (maxX < -80 || minX > width + 80 || maxY < -80 || minY > height + 80) {
+        if (maxX < -cullPad || minX > width + cullPad || maxY < -cullPad || minY > height + cullPad) {
           return;
         }
 
@@ -817,7 +979,7 @@ function drawSmoothPolygon(
           if (pt.y < minY) minY = pt.y;
           if (pt.y > maxY) maxY = pt.y;
         }
-        if (maxX < -80 || minX > width + 80 || maxY < -80 || minY > height + 80) {
+        if (maxX < -cullPad || minX > width + cullPad || maxY < -cullPad || minY > height + cullPad) {
           return;
         }
 
@@ -1969,6 +2131,9 @@ function drawSmoothPolygon(
       ctx.restore();
     }
 
+    ctx.restore();
+    // END ROTATED MAP CONTEXT
+
     // =========================================================================
     // 16. NAUTICAL SCALE BAR & ACCURATE DISTANCE INDICATOR (Bottom-Left)
     // =========================================================================
@@ -2170,33 +2335,39 @@ function drawSmoothPolygon(
 
     if (!isDraggingRef.current) return;
 
-    // Only disengage auto-follow if user explicitly dragged map away (> 25px)
-    const totalDist = Math.hypot(
-      e.clientX - touchStartPosRef.current.x,
-      e.clientY - touchStartPosRef.current.y
-    );
-    if (totalDist > 25 && autoFollowVesselRef.current) {
-      setAutoFollowVessel(false);
-      autoFollowVesselRef.current = false;
-      if (navigationSession.isNavigating) {
-        if (autoReFollowTimerRef.current) clearTimeout(autoReFollowTimerRef.current);
-        autoReFollowTimerRef.current = setTimeout(() => {
-          setAutoFollowVessel(true);
-          autoFollowVesselRef.current = true;
-          centerRef.current = [vesselLonRef.current, vesselLatRef.current];
-          setCenter([vesselLonRef.current, vesselLatRef.current]);
-        }, 14000);
-      }
-    }
-
     const dx = e.clientX - dragStartRef.current.x;
     const dy = e.clientY - dragStartRef.current.y;
+    dragStartRef.current = { x: e.clientX, y: e.clientY };
+
+    if (autoFollowVesselRef.current) {
+      // Reposition vessel on screen while retaining active continuous GPS tracking!
+      const currentW = rect.width || 800;
+      const currentH = rect.height || 600;
+
+      const newOffsetX = Math.max(-currentW * 0.42, Math.min(currentW * 0.42, customAnchorOffsetRef.current.x + dx));
+      const newOffsetY = Math.max(-currentH * 0.42, Math.min(currentH * 0.42, customAnchorOffsetRef.current.y + dy));
+
+      const newOffset = { x: newOffsetX, y: newOffsetY };
+      customAnchorOffsetRef.current = newOffset;
+      setCustomAnchorOffset(newOffset);
+      setVesselPlacement('custom');
+      vesselPlacementRef.current = 'custom';
+      screenAnchorOffsetRef.current = newOffset;
+      return;
+    }
+
+    // Free Browse mode: pan geographically, respecting map rotation
+    const rot = mapRotationRadRef.current;
+    const cosR = Math.cos(rot);
+    const sinR = Math.sin(rot);
+    const dx0 = dx * cosR + dy * sinR;
+    const dy0 = -dx * sinR + dy * cosR;
 
     const currentZoom = zoomRef.current;
     const worldPixels = currentZoom * 3600;
-    const dLon = (dx / worldPixels) * 360;
+    const dLon = (dx0 / worldPixels) * 360;
     const cy = latToMercatorY(centerRef.current[1]) * worldPixels;
-    const newCy = cy - dy;
+    const newCy = cy - dy0;
     const newLat = mercatorYToLat(newCy / worldPixels);
 
     centerRef.current = [centerRef.current[0] - dLon, Math.max(-80, Math.min(80, newLat))];
@@ -2302,6 +2473,15 @@ function drawSmoothPolygon(
           e.touches[0].clientY - e.touches[1].clientY
         );
         touchDistanceRef.current = dist;
+        // Two-finger twist rotation is ONLY enabled during active navigation!
+        if (navigationSessionRef.current.isNavigating) {
+          touchAngleRef.current = Math.atan2(
+            e.touches[1].clientY - e.touches[0].clientY,
+            e.touches[1].clientX - e.touches[0].clientX
+          );
+        } else {
+          touchAngleRef.current = null;
+        }
         isPinchingRef.current = true;
         isDraggingRef.current = false;
         setIsDragging(false);
@@ -2311,7 +2491,7 @@ function drawSmoothPolygon(
     const handleNativeTouchMove = (e: TouchEvent) => {
       if (e.cancelable) e.preventDefault();
 
-      // 1. Two-finger pinch to zoom: Scale smoothly and maintain vessel centering without disengaging follow
+      // 1. Two-finger pinch to zoom & twist to rotate
       if (e.touches.length >= 2 && touchDistanceRef.current !== null) {
         isPinchingRef.current = true;
         isDraggingRef.current = false;
@@ -2330,6 +2510,29 @@ function drawSmoothPolygon(
           }
         }
         touchDistanceRef.current = newDist;
+
+        // Two-finger twist to rotate map (ONLY active when navigation is active!)
+        if (navigationSessionRef.current.isNavigating) {
+          const newAngle = Math.atan2(
+            e.touches[1].clientY - e.touches[0].clientY,
+            e.touches[1].clientX - e.touches[0].clientX
+          );
+          if (touchAngleRef.current !== null) {
+            let deltaAngle = newAngle - touchAngleRef.current;
+            while (deltaAngle > Math.PI) deltaAngle -= Math.PI * 2;
+            while (deltaAngle < -Math.PI) deltaAngle += Math.PI * 2;
+            if (Math.abs(deltaAngle) > 0.035) {
+              setMapOrientation('free');
+              mapOrientationRef.current = 'free';
+              const newDeg = (customRotationDegRef.current + (deltaAngle * 180) / Math.PI + 360) % 360;
+              customRotationDegRef.current = newDeg;
+              setCustomRotationDeg(newDeg);
+              touchAngleRef.current = newAngle;
+            }
+          } else {
+            touchAngleRef.current = newAngle;
+          }
+        }
         return;
       }
 
@@ -2341,40 +2544,48 @@ function drawSmoothPolygon(
       // 2. Single-finger deliberate pan
       if (e.touches.length === 1 && isDraggingRef.current) {
         const t = e.touches[0];
-        const distFromStart = Math.hypot(
-          t.clientX - touchStartPosRef.current.x,
-          t.clientY - touchStartPosRef.current.y
-        );
-
-        // Only disengage auto-follow if user explicitly dragged map away (> 25px)
-        if (distFromStart > 25 && autoFollowVesselRef.current) {
-          setAutoFollowVessel(false);
-          autoFollowVesselRef.current = false;
-          if (navigationSession.isNavigating) {
-            if (autoReFollowTimerRef.current) clearTimeout(autoReFollowTimerRef.current);
-            autoReFollowTimerRef.current = setTimeout(() => {
-              setAutoFollowVessel(true);
-              autoFollowVesselRef.current = true;
-              centerRef.current = [vesselLonRef.current, vesselLatRef.current];
-              setCenter([vesselLonRef.current, vesselLatRef.current]);
-            }, 14000);
-          }
-        }
-
         const dx = t.clientX - dragStartRef.current.x;
         const dy = t.clientY - dragStartRef.current.y;
-
-        const currentZoom = zoomRef.current;
-        const worldPixels = currentZoom * 3600;
-        const dLon = (dx / worldPixels) * 360;
-        const cy = latToMercatorY(centerRef.current[1]) * worldPixels;
-        const newCy = cy - dy;
-        const newLat = mercatorYToLat(newCy / worldPixels);
-
-        centerRef.current = [centerRef.current[0] - dLon, Math.max(-80, Math.min(80, newLat))];
         dragStartRef.current = { x: t.clientX, y: t.clientY };
 
         const rect = canvas.getBoundingClientRect();
+
+        if (autoFollowVesselRef.current) {
+          // Reposition vessel on screen while retaining active continuous GPS tracking!
+          const currentW = rect.width || 800;
+          const currentH = rect.height || 600;
+
+          const newOffsetX = Math.max(-currentW * 0.42, Math.min(currentW * 0.42, customAnchorOffsetRef.current.x + dx));
+          const newOffsetY = Math.max(-currentH * 0.42, Math.min(currentH * 0.42, customAnchorOffsetRef.current.y + dy));
+
+          const newOffset = { x: newOffsetX, y: newOffsetY };
+          customAnchorOffsetRef.current = newOffset;
+          setCustomAnchorOffset(newOffset);
+          setVesselPlacement('custom');
+          vesselPlacementRef.current = 'custom';
+          screenAnchorOffsetRef.current = newOffset;
+
+          const coords = canvasToGeo(t.clientX - rect.left, t.clientY - rect.top, rect.width, rect.height);
+          setCursorCoords(coords);
+          return;
+        }
+
+        // Free browse touch pan, respecting map rotation
+        const rot = mapRotationRadRef.current;
+        const cosR = Math.cos(rot);
+        const sinR = Math.sin(rot);
+        const dx0 = dx * cosR + dy * sinR;
+        const dy0 = -dx * sinR + dy * cosR;
+
+        const currentZoom = zoomRef.current;
+        const worldPixels = currentZoom * 3600;
+        const dLon = (dx0 / worldPixels) * 360;
+        const cy = latToMercatorY(centerRef.current[1]) * worldPixels;
+        const newCy = cy - dy0;
+        const newLat = mercatorYToLat(newCy / worldPixels);
+
+        centerRef.current = [centerRef.current[0] - dLon, Math.max(-80, Math.min(80, newLat))];
+
         const coords = canvasToGeo(t.clientX - rect.left, t.clientY - rect.top, rect.width, rect.height);
         setCursorCoords(coords);
       }
@@ -2392,6 +2603,7 @@ function drawSmoothPolygon(
 
       // Check if all touches released
       if (e.touches.length === 0) {
+        touchAngleRef.current = null;
         if (isPinchingRef.current) {
           isPinchingRef.current = false;
           pinchEndTimeRef.current = Date.now();
@@ -2716,10 +2928,15 @@ function drawSmoothPolygon(
   }, [activeRoute, vesselLat, vesselLon]);
 
   const centerOnVessel = () => {
-    setCenter([vesselLon, vesselLat]);
-    centerRef.current = [vesselLon, vesselLat];
     setAutoFollowVessel(true);
     autoFollowVesselRef.current = true;
+    setVesselPlacement('center');
+    vesselPlacementRef.current = 'center';
+    setCustomAnchorOffset({ x: 0, y: 0 });
+    customAnchorOffsetRef.current = { x: 0, y: 0 };
+    screenAnchorOffsetRef.current = { x: 0, y: 0 };
+    setCenter([vesselLon, vesselLat]);
+    centerRef.current = [vesselLon, vesselLat];
     if (zoomRef.current < 15) {
       setZoom(45);
       zoomRef.current = 45;
@@ -2738,6 +2955,18 @@ function drawSmoothPolygon(
     setCenter([midLon, midLat]);
     setAutoFollowVessel(false);
     autoFollowVesselRef.current = false;
+  };
+
+  const toggleOrientationMode = () => {
+    if (mapOrientation === 'north-up') {
+      setMapOrientation('head-up');
+      mapOrientationRef.current = 'head-up';
+    } else {
+      setMapOrientation('north-up');
+      mapOrientationRef.current = 'north-up';
+      setCustomRotationDeg(0);
+      customRotationDegRef.current = 0;
+    }
   };
 
   // Live Navigation Values for Fullscreen HUD & Bottom Telemetry Bar
@@ -2760,10 +2989,13 @@ function drawSmoothPolygon(
 
   const currentSpeedKnots = gps.speedKnots !== null ? gps.speedKnots : 0;
   const isRouteOrNavActive = navigationSession.isNavigating || !!activeRoute || !!targetWaypoint || isAddWaypointMode;
-  const validGpsHeading = (gps.heading !== null && !isNaN(gps.heading)) ? gps.heading : null;
-  const currentHeading = activeHeadingMode === 'gps'
-    ? (validGpsHeading ?? lastValidGpsHeadingRef.current ?? (compass.trueHeading || compass.magneticHeading || 0))
-    : (compass.trueHeading || compass.magneticHeading || validGpsHeading || 0);
+  const currentEffectiveRotationDeg = navigationSession.isNavigating
+    ? (mapOrientation === 'head-up'
+        ? (-currentHeading + 360) % 360
+        : mapOrientation === 'free'
+        ? (customRotationDeg + 360) % 360
+        : 0)
+    : 0;
   const currentEta = navigationSession.etaTimestamp ? formatEta(navigationSession.etaTimestamp) : '---';
 
   const chartContent = (
@@ -2809,11 +3041,61 @@ function drawSmoothPolygon(
         }`}
       />
 
+      {/* 3-Second English Navigation Hint Banner */}
+      {navHintMessage && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-2xl bg-slate-900/95 border border-cyan-400 text-white text-xs font-mono font-bold shadow-2xl backdrop-blur-md flex items-center gap-2.5 pointer-events-none transition-all animate-fadeIn">
+          <RotateCw className="w-3.5 h-3.5 text-cyan-400 animate-spin shrink-0" style={{ animationDuration: '3s' }} />
+          <span className="text-cyan-200">{navHintMessage}</span>
+        </div>
+      )}
+
       {/* FULL SCREEN COMPACT HIGH-CONTRAST MARINE NAVIGATION HUD */}
       {isFullscreen && (
         <div className="absolute top-1.5 sm:top-2.5 left-1.5 sm:left-3 right-1.5 sm:right-3 z-30 pointer-events-none flex flex-wrap items-center justify-between gap-1 sm:gap-2 max-w-[calc(100vw-0.75rem)] sm:max-w-none">
-          {/* Left Cluster: Compact Marine HUD Readouts */}
+          {/* Left Cluster: Circular Orientation Toggle & Compact Marine HUD Readouts */}
           <div className="pointer-events-auto flex items-center gap-1 sm:gap-1.5 font-mono overflow-x-auto no-scrollbar py-0.5 max-w-full sm:max-w-[55vw] shrink-0">
+            {/* Circular N-UP / H-UP Compass Toggle Button with Red-Top Black-Bottom Needle */}
+            <button
+              type="button"
+              onClick={toggleOrientationMode}
+              className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full border backdrop-blur-md shadow-lg flex items-center justify-center relative transition-all active:scale-95 shrink-0 ${
+                navigationSession.isNavigating && mapOrientation === 'head-up'
+                  ? 'bg-emerald-950/90 border-emerald-500 text-white shadow-emerald-950/60 ring-1 ring-emerald-500/50'
+                  : navigationSession.isNavigating && mapOrientation === 'free'
+                  ? 'bg-amber-950/90 border-amber-500 text-white shadow-amber-950/60 ring-1 ring-amber-500/50'
+                  : isNightMode
+                  ? 'bg-red-950/90 border-red-800 text-red-200 hover:bg-red-900'
+                  : 'bg-slate-900/90 border-slate-700 text-slate-200 hover:bg-slate-800 hover:text-cyan-400'
+              }`}
+              title={`جهت نقشه: ${mapOrientation === 'head-up' ? 'Head-Up (حرکت رو به بالا)' : mapOrientation === 'free' ? `زاویه دستی (${Math.round(customRotationDeg)}°)` : 'North-Up (شمال بالا)'}. کلیک برای تغییر بین N-UP و H-UP`}
+            >
+              <svg 
+                viewBox="-20 -20 40 40" 
+                className="w-5 h-5 sm:w-5.5 sm:h-5.5 transition-transform duration-200 drop-shadow" 
+                style={{ transform: `rotate(${-currentEffectiveRotationDeg}deg)` }}
+              >
+                {/* Outer compass ring */}
+                <circle cx="0" cy="0" r="17" fill="none" stroke="currentColor" strokeWidth="1.5" className="opacity-30" />
+                {/* North top tick (Red) */}
+                <line x1="0" y1="-17" x2="0" y2="-13" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" />
+                {/* South bottom tick (Black) */}
+                <line x1="0" y1="17" x2="0" y2="13" stroke="#000000" strokeWidth="2" strokeLinecap="round" />
+                
+                {/* TOP HALF: RED NEEDLE (Pointing North) */}
+                <polygon points="0,-14 3.8,-1 0,0" fill="#ef4444" />
+                <polygon points="0,-14 -3.8,-1 0,0" fill="#dc2626" />
+                
+                {/* BOTTOM HALF: BLACK NEEDLE (Pointing South) */}
+                <polygon points="0,14 3.8,1 0,0" fill="#000000" />
+                <polygon points="0,14 -3.8,1 0,0" fill="#1e293b" />
+                
+                {/* Center silver pivot */}
+                <circle cx="0" cy="0" r="2.2" fill="#ffffff" stroke="#000000" strokeWidth="0.8" />
+              </svg>
+              <span className="absolute -bottom-1 -right-1 px-1 rounded-full bg-slate-950 text-[7px] font-mono font-extrabold text-cyan-300 border border-slate-700 leading-tight">
+                {mapOrientation === 'head-up' ? 'H-UP' : mapOrientation === 'free' ? 'FREE' : 'N-UP'}
+              </span>
+            </button>
             {/* Vessel Speed (SOG) */}
             <div className={`px-2 py-1 rounded-lg border backdrop-blur-md flex items-center gap-1.5 shadow-lg shrink-0 ${
               isNightMode ? 'bg-red-950/90 border-red-800' : 'bg-slate-900/90 border-slate-700'
@@ -2997,6 +3279,48 @@ function drawSmoothPolygon(
         <div className="absolute top-2.5 left-2.5 right-2.5 flex flex-wrap items-center justify-between gap-1.5 pointer-events-none z-20">
           {/* Left: Navigation Controls, Vessel Position, Heading Mode & Tile Mode */}
           <div className="flex flex-wrap items-center gap-1.5 pointer-events-auto">
+            {/* Circular N-UP / H-UP Compass Toggle Button with Red-Top Black-Bottom Needle */}
+            <button
+              type="button"
+              onClick={toggleOrientationMode}
+              className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full border backdrop-blur-md shadow-lg flex items-center justify-center relative transition-all active:scale-95 shrink-0 ${
+                navigationSession.isNavigating && mapOrientation === 'head-up'
+                  ? 'bg-emerald-950/90 border-emerald-500 text-white shadow-emerald-950/60 ring-1 ring-emerald-500/50'
+                  : navigationSession.isNavigating && mapOrientation === 'free'
+                  ? 'bg-amber-950/90 border-amber-500 text-white shadow-amber-950/60 ring-1 ring-amber-500/50'
+                  : isNightMode
+                  ? 'bg-red-950/90 border-red-800 text-red-200 hover:bg-red-900'
+                  : 'bg-slate-900/90 border-slate-700 text-slate-200 hover:bg-slate-800 hover:text-cyan-400'
+              }`}
+              title={`جهت نقشه: ${mapOrientation === 'head-up' ? 'Head-Up (حرکت رو به بالا)' : mapOrientation === 'free' ? `زاویه دستی (${Math.round(customRotationDeg)}°)` : 'North-Up (شمال بالا)'}. کلیک برای تغییر بین N-UP و H-UP`}
+            >
+              <svg 
+                viewBox="-20 -20 40 40" 
+                className="w-5 h-5 sm:w-5.5 sm:h-5.5 transition-transform duration-200 drop-shadow" 
+                style={{ transform: `rotate(${-currentEffectiveRotationDeg}deg)` }}
+              >
+                {/* Outer compass ring */}
+                <circle cx="0" cy="0" r="17" fill="none" stroke="currentColor" strokeWidth="1.5" className="opacity-30" />
+                {/* North top tick (Red) */}
+                <line x1="0" y1="-17" x2="0" y2="-13" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" />
+                {/* South bottom tick (Black) */}
+                <line x1="0" y1="17" x2="0" y2="13" stroke="#000000" strokeWidth="2" strokeLinecap="round" />
+                
+                {/* TOP HALF: RED NEEDLE (Pointing North) */}
+                <polygon points="0,-14 3.8,-1 0,0" fill="#ef4444" />
+                <polygon points="0,-14 -3.8,-1 0,0" fill="#dc2626" />
+                
+                {/* BOTTOM HALF: BLACK NEEDLE (Pointing South) */}
+                <polygon points="0,14 3.8,1 0,0" fill="#000000" />
+                <polygon points="0,14 -3.8,1 0,0" fill="#1e293b" />
+                
+                {/* Center silver pivot */}
+                <circle cx="0" cy="0" r="2.2" fill="#ffffff" stroke="#000000" strokeWidth="0.8" />
+              </svg>
+              <span className="absolute -bottom-1 -right-1 px-1 rounded-full bg-slate-950 text-[7px] font-mono font-extrabold text-cyan-300 border border-slate-700 leading-tight">
+                {mapOrientation === 'head-up' ? 'H-UP' : mapOrientation === 'free' ? 'FREE' : 'N-UP'}
+              </span>
+            </button>
             {/* In-Map Navigation Controls: Stop & Start right at top */}
             {navigationSession.isNavigating ? (
               <div className="flex items-center gap-1.5 bg-slate-900/95 p-1 rounded-xl border border-rose-500/70 shadow-2xl backdrop-blur-md text-xs font-mono">
@@ -3378,7 +3702,8 @@ function drawSmoothPolygon(
           <Minus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </button>
 
-        {/* Center on Vessel Button */}
+        {/* Center / Position Vessel on Screen */}
+        {/* Center & Follow Vessel GPS Button */}
         <button
           type="button"
           onClick={centerOnVessel}

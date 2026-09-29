@@ -339,14 +339,16 @@ export function renderLiveMapTiles(
   const continuousZ = 3.8137 + Math.log2(zoom);
   const z = Math.max(1, Math.min(maxZ, Math.round(continuousZ)));
 
-  // Viewport bounds
-  const topLeftGeo = canvasToGeo(0, 0, width, height);
-  const bottomRightGeo = canvasToGeo(width, height, width, height);
+  // Viewport bounds across all 4 rotated screen corners + margins to ensure full canvas coverage
+  const c1 = canvasToGeo(-30, -30, width, height);
+  const c2 = canvasToGeo(width + 30, -30, width, height);
+  const c3 = canvasToGeo(width + 30, height + 30, width, height);
+  const c4 = canvasToGeo(-30, height + 30, width, height);
 
-  const minLon = Math.max(-180, Math.min(topLeftGeo.lon, bottomRightGeo.lon));
-  const maxLon = Math.min(180, Math.max(topLeftGeo.lon, bottomRightGeo.lon));
-  const maxLat = Math.min(85.0511, Math.max(topLeftGeo.lat, bottomRightGeo.lat));
-  const minLat = Math.max(-85.0511, Math.min(topLeftGeo.lat, bottomRightGeo.lat));
+  const minLon = Math.max(-180, Math.min(c1.lon, c2.lon, c3.lon, c4.lon));
+  const maxLon = Math.min(180, Math.max(c1.lon, c2.lon, c3.lon, c4.lon));
+  const maxLat = Math.min(85.0511, Math.max(c1.lat, c2.lat, c3.lat, c4.lat));
+  const minLat = Math.max(-85.0511, Math.min(c1.lat, c2.lat, c3.lat, c4.lat));
 
   // Tile index bounds
   const numTiles = 1 << z;
