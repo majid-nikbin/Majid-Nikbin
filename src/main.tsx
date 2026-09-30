@@ -3,14 +3,14 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
-// Unregister stale service workers and purge corrupted caches to guarantee fresh loading
+// Register 100% Offline-First Service Worker for permanent offline caching across device reboots
 if (typeof window !== 'undefined') {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then((registrations) => {
-      for (const registration of registrations) {
-        registration.unregister().catch(() => {});
-      }
-    }).catch(() => {});
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch((err) => {
+        console.warn('Offline Service Worker registration failed:', err);
+      });
+    });
   }
 
   // Global crash listener for immediate visual recovery
