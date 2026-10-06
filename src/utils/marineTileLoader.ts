@@ -496,6 +496,79 @@ export function renderLiveMapTiles(
 }
 
 /**
+ * Pure OpenSeaMap Seamarks overlay (draws transparent seamarks/buoys/lighthouses without base map tiles)
+ */
+export function renderOpenSeaMapOverlay(
+  ctx: CanvasRenderingContext2D,
+  zoom: number,
+  geoToCanvas: (lon: number, lat: number, width: number, height: number) => { x: number; y: number },
+  canvasToGeo: (x: number, y: number, width: number, height: number) => { lat: number; lon: number },
+  width: number,
+  height: number,
+  onTileLoaded: () => void
+) {
+  const continuousZ = 3.8137 + Math.log2(zoom);
+  const z = Math.max(8, Math.min(18, Math.round(continuousZ)));
+  if (z < 8) return; // Seamarks are only defined for zoom >= 8
+
+  const c1 = canvasToGeo(-30, -30, width, height);
+  const c2 = canvasToGeo(width + 30, -30, width, height);
+  const c3 = canvasToGeo(width + 30, height + 30, width, height);
+  const c4 = canvasToGeo(-30, height + 30, width, height);
+
+  const minLon = Math.max(-180, Math.min(c1.lon, c2.lon, c3.lon, c4.lon));
+  const maxLon = Math.min(180, Math.max(c1.lon, c2.lon, c3.lon, c4.lon));
+  const maxLat = Math.min(85.0511, Math.max(c1.lat, c2.lat, c3.lat, c4.lat));
+  const minLat = Math.max(-85.0511, Math.min(c1.lat, c2.lat, c3.lat, c4.lat));
+
+  const numTiles = 1 << z;
+  const latToTileY = (lat: number) => {
+    const clampedLat = Math.max(-85.0511, Math.min(85.0511, isNaN(lat) ? 0 : lat));
+    const latRad = (clampedLat * Math.PI) / 180;
+    const sin = Math.sin(latRad);
+    return Math.floor(((1 - Math.log((1 + sin) / (1 - sin)) / (2 * Math.PI)) / 2) * numTiles);
+  };
+
+  const clampedMaxLat = Math.max(-85.0511, Math.min(85.0511, maxLat));
+  const clampedMinLat = Math.max(-85.0511, Math.min(85.0511, minLat));
+  let minTileY = latToTileY(clampedMaxLat);
+  let maxTileY = latToTileY(clampedMinLat);
+  if (minTileY > maxTileY) {
+    const temp = minTileY;
+    minTileY = maxTileY;
+    maxTileY = temp;
+  }
+  const minTileX = Math.floor(((minLon + 180) / 360) * numTiles);
+  const maxTileX = Math.floor(((maxLon + 180) / 360) * numTiles);
+
+  for (let tx = minTileX; tx <= maxTileX; tx++) {
+    for (let ty = minTileY; ty <= maxTileY; ty++) {
+      const lonLeft = (tx / numTiles) * 360 - 180;
+      const lonRight = ((tx + 1) / numTiles) * 360 - 180;
+      const latTopRad = Math.atan(Math.sinh(Math.PI * (1 - (2 * ty) / numTiles)));
+      const latTop = (latTopRad * 180) / Math.PI;
+      const latBottomRad = Math.atan(Math.sinh(Math.PI * (1 - (2 * (ty + 1)) / numTiles)));
+      const latBottom = (latBottomRad * 180) / Math.PI;
+
+      const pTopLeft = geoToCanvas(lonLeft, latTop, width, height);
+      const pBottomRight = geoToCanvas(lonRight, latBottom, width, height);
+
+      const drawX = pTopLeft.x;
+      const drawY = pTopLeft.y;
+      const tileWidth = pBottomRight.x - pTopLeft.x;
+      const tileHeight = pBottomRight.y - pTopLeft.y;
+
+      const seamarkUrl = getOpenSeaMapTileUrl(z, tx, ty);
+      const seamarkKey = `seamark:${z}:${tx}:${ty}`;
+      const seamarkImg = requestTileImage(seamarkUrl, seamarkKey, onTileLoaded);
+      if (seamarkImg) {
+        ctx.drawImage(seamarkImg, drawX, drawY, tileWidth, tileHeight);
+      }
+    }
+  }
+}
+
+/**
  * Fast one-click download & persistent offline caching of current visible viewport
  * Downloads tiles for current zoom level and current+1, current+2.
  */

@@ -191,6 +191,7 @@ export function useSensors(magneticVariation: number = 0, headingCorrection: num
     };
 
     // Calculate 3D tilt-compensated azimuth from Euler angles (alpha, beta, gamma)
+    // Note: W3C alpha increases counter-clockwise. Real compass heading (azimuth) increases clockwise from North.
     const computeTiltCompensatedHeading = (alpha: number, beta: number, gamma: number): number => {
       const rad = Math.PI / 180;
       const a = alpha * rad;
@@ -205,7 +206,8 @@ export function useSensors(magneticVariation: number = 0, headingCorrection: num
       const yX = -cA * sB * sG - sA * cG;
       const yY = -sA * sB * sG + cA * cG;
 
-      let azimuth = Math.atan2(-yX, yY) * (180 / Math.PI);
+      // Clockwise azimuth from North (0° = N, 90° = E, 180° = S, 270° = W)
+      let azimuth = Math.atan2(yX, yY) * (180 / Math.PI);
       const screenOffset = getScreenOrientationAngle();
       azimuth = (azimuth + screenOffset) % 360;
       return ((azimuth % 360) + 360) % 360;
@@ -253,7 +255,8 @@ export function useSensors(magneticVariation: number = 0, headingCorrection: num
             const qx = q[0], qy = q[1], qz = q[2], qw = q[3];
             const r01 = 2 * (qx * qy - qw * qz);
             const r11 = 1 - 2 * (qx * qx + qz * qz);
-            let heading = Math.atan2(-r01, r11) * (180 / Math.PI);
+            // Invert East/West component to match clockwise compass azimuth
+            let heading = Math.atan2(r01, r11) * (180 / Math.PI);
             const screenOffset = getScreenOrientationAngle();
             heading = ((heading + screenOffset) % 360 + 360) % 360;
 

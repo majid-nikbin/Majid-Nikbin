@@ -78,6 +78,7 @@ import {
   LiveTileProvider,
   LIVE_TILE_PROVIDERS,
   renderLiveMapTiles,
+  renderOpenSeaMapOverlay,
   getSavedCustomTileUrl,
   saveCustomTileUrl,
   getCachedTileStats,
@@ -865,7 +866,7 @@ function drawSmoothPolygon(
     // 1. BASE HYDROGRAPHIC WATER & UNDERLYING SHORELINE VECTORS
     // =========================================================================
     // 1. Deep Oceanic Water Base Fill (Admiralty Cyan in Vector Mode, Deep Navy in Satellite Mode)
-    ctx.fillStyle = isNightMode ? '#080404' : (mapMode === 'vector' ? '#aad3df' : '#071626');
+    ctx.fillStyle = isNightMode ? '#080404' : (mapMode === 'vector' ? '#b8e2ec' : '#071626');
     ctx.fillRect(0, 0, width, height);
 
     // Dynamic cull margin for rotated canvas
@@ -879,91 +880,89 @@ function drawSmoothPolygon(
     ctx.rotate(mapRotationRadRef.current);
     ctx.translate(-focusX, -focusY);
 
-    // 2. Draw World Landmass Polygons & Outer Coastlines (Fallback for Satellite mode only)
-    if (mapMode !== 'vector') {
-      WORLD_LANDMASSES.forEach((land) => {
-        if (land.points.length < 3) return;
-        const screenPts = land.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
+    // 2. Draw World Landmass Polygons & Outer Coastlines (ENC Vector Nautical Chart & Satellite Fallback)
+    WORLD_LANDMASSES.forEach((land) => {
+      if (land.points.length < 3) return;
+      const screenPts = land.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
 
-        // Bounding box screen culling check
-        let minX = screenPts[0].x, maxX = screenPts[0].x;
-        let minY = screenPts[0].y, maxY = screenPts[0].y;
-        for (let i = 1; i < screenPts.length; i++) {
-          const pt = screenPts[i];
-          if (pt.x < minX) minX = pt.x;
-          if (pt.x > maxX) maxX = pt.x;
-          if (pt.y < minY) minY = pt.y;
-          if (pt.y > maxY) maxY = pt.y;
-        }
-        if (maxX < -cullPad || minX > width + cullPad || maxY < -cullPad || minY > height + cullPad) {
-          return;
-        }
+      // Bounding box screen culling check
+      let minX = screenPts[0].x, maxX = screenPts[0].x;
+      let minY = screenPts[0].y, maxY = screenPts[0].y;
+      for (let i = 1; i < screenPts.length; i++) {
+        const pt = screenPts[i];
+        if (pt.x < minX) minX = pt.x;
+        if (pt.x > maxX) maxX = pt.x;
+        if (pt.y < minY) minY = pt.y;
+        if (pt.y > maxY) maxY = pt.y;
+      }
+      if (maxX < -cullPad || minX > width + cullPad || maxY < -cullPad || minY > height + cullPad) {
+        return;
+      }
 
-        // Draw natural, organic shoreline curves
-        drawSmoothPolygon(ctx, screenPts, 0.22);
+      // Draw natural, organic shoreline curves
+      drawSmoothPolygon(ctx, screenPts, 0.22);
 
-        // Land fill color: Authentic Nautical Chart Buff / Khaki tone
-        ctx.fillStyle = isNightMode ? '#2d2215' : '#d8c79d';
-        ctx.fill();
+      // Land fill color: Authentic Nautical Chart Buff / Khaki tone
+      ctx.fillStyle = isNightMode ? '#281a12' : (mapMode === 'vector' ? '#f0e5cd' : '#d8c79d');
+      ctx.fill();
 
-        // Coastal shallow intertidal fringe (gives authentic hydrographic depth)
-        ctx.strokeStyle = isNightMode ? 'rgba(110, 79, 37, 0.35)' : 'rgba(18, 72, 99, 0.28)';
-        ctx.lineWidth = 4.5;
-        ctx.stroke();
+      // Coastal shallow intertidal fringe (gives authentic hydrographic depth)
+      ctx.strokeStyle = isNightMode ? 'rgba(110, 79, 37, 0.35)' : (mapMode === 'vector' ? 'rgba(35, 140, 180, 0.32)' : 'rgba(18, 72, 99, 0.28)');
+      ctx.lineWidth = 4.5;
+      ctx.stroke();
 
-        // Coastline stroke: Rich ochre shoreline border
-        ctx.strokeStyle = isNightMode ? '#6e4f25' : '#9b824f';
-        ctx.lineWidth = 1.6;
-        ctx.stroke();
-      });
+      // Coastline stroke: Rich ochre shoreline border
+      ctx.strokeStyle = isNightMode ? '#6e4f25' : (mapMode === 'vector' ? '#8c6f3e' : '#9b824f');
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+    });
 
-      // 3. Draw Inland Water Bodies & Major Regional Seas (Caspian Sea, Black Sea, Sea of Azov, Sea of Marmara, Lakes)
-      INLAND_WATER_BODIES.forEach((water) => {
-        if (water.points.length < 3) return;
-        const screenPts = water.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
+    // 3. Draw Inland Water Bodies & Major Regional Seas (Caspian Sea, Black Sea, Sea of Azov, Sea of Marmara, Lakes)
+    INLAND_WATER_BODIES.forEach((water) => {
+      if (water.points.length < 3) return;
+      const screenPts = water.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
 
-        let minX = screenPts[0].x, maxX = screenPts[0].x;
-        let minY = screenPts[0].y, maxY = screenPts[0].y;
-        for (let i = 1; i < screenPts.length; i++) {
-          const pt = screenPts[i];
-          if (pt.x < minX) minX = pt.x;
-          if (pt.x > maxX) maxX = pt.x;
-          if (pt.y < minY) minY = pt.y;
-          if (pt.y > maxY) maxY = pt.y;
-        }
-        if (maxX < -cullPad || minX > width + cullPad || maxY < -cullPad || minY > height + cullPad) {
-          return;
-        }
+      let minX = screenPts[0].x, maxX = screenPts[0].x;
+      let minY = screenPts[0].y, maxY = screenPts[0].y;
+      for (let i = 1; i < screenPts.length; i++) {
+        const pt = screenPts[i];
+        if (pt.x < minX) minX = pt.x;
+        if (pt.x > maxX) maxX = pt.x;
+        if (pt.y < minY) minY = pt.y;
+        if (pt.y > maxY) maxY = pt.y;
+      }
+      if (maxX < -cullPad || minX > width + cullPad || maxY < -cullPad || minY > height + cullPad) {
+        return;
+      }
 
-        drawSmoothPolygon(ctx, screenPts, 0.18);
+      drawSmoothPolygon(ctx, screenPts, 0.18);
 
-        // Water fill color (Deep Admiralty Blue)
-        ctx.fillStyle = isNightMode ? '#080404' : '#071626';
-        ctx.fill();
+      // Water fill color
+      ctx.fillStyle = isNightMode ? '#080404' : (mapMode === 'vector' ? '#b8e2ec' : '#071626');
+      ctx.fill();
 
-        // Coastal shallow fringe
-        ctx.strokeStyle = isNightMode ? 'rgba(110, 79, 37, 0.35)' : 'rgba(18, 72, 99, 0.28)';
-        ctx.lineWidth = 4;
-        ctx.stroke();
+      // Coastal shallow fringe
+      ctx.strokeStyle = isNightMode ? 'rgba(110, 79, 37, 0.35)' : 'rgba(18, 72, 99, 0.28)';
+      ctx.lineWidth = 4;
+      ctx.stroke();
 
-        // Coastline stroke: Rich ochre shoreline border
-        ctx.strokeStyle = isNightMode ? '#6e4f25' : '#9b824f';
-        ctx.lineWidth = 1.6;
-        ctx.stroke();
-      });
+      // Coastline stroke: Rich ochre shoreline border
+      ctx.strokeStyle = isNightMode ? '#6e4f25' : (mapMode === 'vector' ? '#8c6f3e' : '#9b824f');
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+    });
 
-      // Re-draw any islands situated inside inland water bodies (e.g. Ashuradeh in Caspian, Snake Island in Black Sea)
-      WORLD_LANDMASSES.filter(l => l.name.includes('Ashuradeh') || l.name.includes('Ogurchinskiy') || l.name.includes('Snake Island')).forEach((island) => {
-        if (island.points.length < 3) return;
-        const screenPts = island.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
-        drawSmoothPolygon(ctx, screenPts, 0.2);
-        ctx.fillStyle = isNightMode ? '#2d2215' : '#d8c79d';
-        ctx.fill();
-        ctx.strokeStyle = isNightMode ? '#6e4f25' : '#9b824f';
-        ctx.lineWidth = 1.6;
-        ctx.stroke();
-      });
-    }
+    // Re-draw any islands situated inside inland water bodies (e.g. Ashuradeh in Caspian, Snake Island in Black Sea)
+    WORLD_LANDMASSES.filter(l => l.name.includes('Ashuradeh') || l.name.includes('Ogurchinskiy') || l.name.includes('Snake Island')).forEach((island) => {
+      if (island.points.length < 3) return;
+      const screenPts = island.points.map(([lon, lat]) => geoToCanvas(lon, lat, width, height));
+      drawSmoothPolygon(ctx, screenPts, 0.2);
+      ctx.fillStyle = isNightMode ? '#281a12' : (mapMode === 'vector' ? '#f0e5cd' : '#d8c79d');
+      ctx.fill();
+      ctx.strokeStyle = isNightMode ? '#6e4f25' : (mapMode === 'vector' ? '#8c6f3e' : '#9b824f');
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+    });
 
     // 4. Draw Bathymetry Depth Zones & Contours
     if (showBathymetry && mapMode === 'vector') {
@@ -1035,18 +1034,18 @@ function drawSmoothPolygon(
         showLiveSeamarks
       );
     } else if (mapMode === 'vector') {
-      // High-Definition Electronic Navigational Chart (ENC Vector Nautical Chart - 100% Offline Ready)
-      renderLiveMapTiles(
-        ctx,
-        'google_nautical',
-        zoom,
-        geoToCanvas,
-        canvasToGeo,
-        width,
-        height,
-        triggerTileRedraw,
-        showLiveSeamarks
-      );
+      // 100% Offline ENC Vector Chart - If OpenSeaMap seamarks enabled, overlay transparent seamarks/buoys
+      if (showLiveSeamarks) {
+        renderOpenSeaMapOverlay(
+          ctx,
+          zoom,
+          geoToCanvas,
+          canvasToGeo,
+          width,
+          height,
+          triggerTileRedraw
+        );
+      }
     }
 
     // =========================================================================
