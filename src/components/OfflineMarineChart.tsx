@@ -2082,52 +2082,76 @@ function drawSmoothPolygon(
         }
       }
 
-      // Heading Vector Line
-      ctx.beginPath();
-      ctx.moveTo(boatPt.x, boatPt.y);
+      // Heading Vector Line (with high-visibility Red casing/border against blue sea)
       const vectorLen = Math.max(35, Math.min(120, (gps.speedKnots || 5) * 6));
       const headX = boatPt.x + Math.sin(headingRad) * vectorLen;
       const headY = boatPt.y - Math.cos(headingRad) * vectorLen;
+
+      // 1. Red Outer Casing Border
+      ctx.beginPath();
+      ctx.moveTo(boatPt.x, boatPt.y);
       ctx.lineTo(headX, headY);
-      ctx.strokeStyle = isNightMode ? '#ef4444' : '#06b6d4';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#dc2626'; // Vivid Red border
+      ctx.lineWidth = 4.5;
+      ctx.lineCap = 'round';
       ctx.stroke();
 
+      // 2. Inner Blue Core line
+      ctx.beginPath();
+      ctx.moveTo(boatPt.x, boatPt.y);
+      ctx.lineTo(headX, headY);
+      ctx.strokeStyle = isNightMode ? '#ef4444' : '#0284c7';
+      ctx.lineWidth = 2.2;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+
+      // Arrow tip with Red border and Blue fill
       ctx.save();
       ctx.translate(headX, headY);
       ctx.rotate(headingRad);
       ctx.beginPath();
-      ctx.moveTo(0, -6);
-      ctx.lineTo(-4, 4);
-      ctx.lineTo(4, 4);
+      ctx.moveTo(0, -7);
+      ctx.lineTo(-5, 4);
+      ctx.lineTo(5, 4);
       ctx.closePath();
-      ctx.fillStyle = isNightMode ? '#ef4444' : '#06b6d4';
+      ctx.fillStyle = isNightMode ? '#ef4444' : '#0284c7';
       ctx.fill();
+      ctx.strokeStyle = '#dc2626';
+      ctx.lineWidth = 2;
+      ctx.stroke();
       ctx.restore();
 
-      // Vessel Symbol (Nautical Hull)
+      // Vessel Symbol (Nautical Hull) with Vivid RED Outline
       ctx.save();
       ctx.translate(boatPt.x, boatPt.y);
       ctx.rotate(headingRad);
 
       ctx.beginPath();
-      ctx.moveTo(0, -12); // Bow
-      ctx.lineTo(7, 2);   // Starboard Mid
-      ctx.lineTo(5, 10);  // Starboard Stern
-      ctx.lineTo(-5, 10); // Port Stern
-      ctx.lineTo(-7, 2);  // Port Mid
+      ctx.moveTo(0, -13); // Bow
+      ctx.lineTo(8, 2);   // Starboard Mid
+      ctx.lineTo(5.5, 11);  // Starboard Stern
+      ctx.lineTo(-5.5, 11); // Port Stern
+      ctx.lineTo(-8, 2);  // Port Mid
       ctx.closePath();
 
-      ctx.fillStyle = isNightMode ? '#ef4444' : '#06b6d4';
+      // Hull Fill (Marine Cyan/Blue)
+      ctx.fillStyle = isNightMode ? '#ef4444' : '#0ea5e9';
       ctx.fill();
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 1.5;
+
+      // High-contrast Red Outer Stroke (خط دور قرمز پررنگ متمایز از آبی دریا)
+      ctx.strokeStyle = '#dc2626';
+      ctx.lineWidth = 2.8;
+      ctx.lineJoin = 'round';
       ctx.stroke();
 
+      // Center Position Dot
       ctx.beginPath();
-      ctx.arc(0, 0, 2, 0, Math.PI * 2);
+      ctx.arc(0, 0, 2.5, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
       ctx.fill();
+      ctx.strokeStyle = '#dc2626';
+      ctx.lineWidth = 1;
+      ctx.stroke();
       ctx.restore();
     }
 

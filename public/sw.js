@@ -35,6 +35,27 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Marine Tile requests: Cache-First for instant offline map rendering with zero network delay
+  if (req.url.includes('google.com/vt/') || req.url.includes('arcgisonline.com') || req.url.includes('openstreetmap') || req.url.includes('openseamap.org')) {
+    event.respondWith(
+      caches.open('mariner-tiles-offline-v2').then(async (tileCache) => {
+        const cached = await tileCache.match(req);
+        if (cached) {
+          return cached;
+        }
+        return fetch(req).then((netRes) => {
+          if (netRes && netRes.ok) {
+            tileCache.put(req, netRes.clone());
+          }
+          return netRes;
+        }).catch(() => {
+          return new Response('', { status: 408, statusText: 'Tile Offline Unavailable' });
+        });
+      })
+    );
+    return;
+  }
+
   // Navigation requests (HTML document): Cache First with network fallback
   if (req.mode === 'navigate') {
     event.respondWith(

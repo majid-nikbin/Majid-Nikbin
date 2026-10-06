@@ -232,6 +232,64 @@ export async function saveUrlToPersistentCache(url: string): Promise<void> {
  * - Direct Image loading utilizes browser's C++ multithreaded network + GPU texture decoding
  * - Immediate synchronous src assignment with non-blocking asynchronous CacheStorage sync
  */
+/**
+ * Instant direct cache loader that bypasses browser network timeout entirely when offline
+ */
+function loadTileFromCacheDirectly(
+  url: string,
+  key: string,
+  onLoaded?: () => void,
+  fallbackUrl?: string
+) {
+  const doMatch = (cache: Cache) => {
+    cache.match(url).then(cachedResp => {
+      if (cachedResp && cachedResp.ok) {
+        cachedResp.blob().then(blob => {
+          const objUrl = URL.createObjectURL(blob);
+          const offlineImg = new Image();
+          offlineImg.onload = () => {
+            TILE_MEMORY_CACHE.set(key, offlineImg);
+            PENDING_REQUESTS.delete(key);
+            if (onLoaded) onLoaded();
+          };
+          offlineImg.onerror = () => {
+            PENDING_REQUESTS.delete(key);
+            URL.revokeObjectURL(objUrl);
+          };
+          offlineImg.src = objUrl;
+        }).catch(() => {
+          PENDING_REQUESTS.delete(key);
+        });
+      } else {
+        PENDING_REQUESTS.delete(key);
+        if (fallbackUrl && fallbackUrl !== url) {
+          requestTileImage(fallbackUrl, `${key}_fb`, onLoaded);
+        }
+      }
+    }).catch(() => {
+      PENDING_REQUESTS.delete(key);
+    });
+  };
+
+  if (globalCacheInstance) {
+    doMatch(globalCacheInstance);
+  } else if (typeof window !== 'undefined' && 'caches' in window) {
+    caches.open(TILE_CACHE_NAME).then(c => {
+      globalCacheInstance = c;
+      doMatch(c);
+    }).catch(() => {
+      PENDING_REQUESTS.delete(key);
+    });
+  } else {
+    PENDING_REQUESTS.delete(key);
+  }
+}
+
+/**
+ * Ultra-fast direct image request with background offline caching:
+ * - Direct Image loading utilizes browser's C++ multithreaded network + GPU texture decoding
+ * - Immediate synchronous src assignment with non-blocking asynchronous CacheStorage sync
+ */
 function requestTileImage(
   url: string,
   key: string,
@@ -259,10 +317,25 @@ function requestTileImage(
     }
   }
 
+  // 3. ZERO-DELAY OFFLINE CHECK:
+  // If disconnected from internet OR if this tile is known to be in persistent CacheStorage,
+  // load directly from CacheStorage in <2ms! Never wait for browser network socket timeout!
+  const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+  const isKnownCached = CACHED_URLS_SET.has(url);
+
+  if (isOffline || isKnownCached) {
+    loadTileFromCacheDirectly(url, key, onLoaded, fallbackUrl);
+    return null;
+  }
+
+  // 4. Online Network Request
   const img = new Image();
   img.crossOrigin = 'anonymous';
+  let isDone = false;
 
   img.onload = () => {
+    if (isDone) return;
+    isDone = true;
     TILE_MEMORY_CACHE.set(key, img);
     PENDING_REQUESTS.delete(key);
     if (onLoaded) onLoaded();
@@ -271,44 +344,12 @@ function requestTileImage(
   };
 
   img.onerror = () => {
-    // If network error occurred, check if available in persistent CacheStorage
-    if (globalCacheInstance) {
-      globalCacheInstance.match(url).then(cachedResp => {
-        if (cachedResp && cachedResp.ok) {
-          cachedResp.blob().then(blob => {
-            const objUrl = URL.createObjectURL(blob);
-            const offlineImg = new Image();
-            offlineImg.onload = () => {
-              TILE_MEMORY_CACHE.set(key, offlineImg);
-              PENDING_REQUESTS.delete(key);
-              if (onLoaded) onLoaded();
-            };
-            offlineImg.onerror = () => {
-              PENDING_REQUESTS.delete(key);
-              URL.revokeObjectURL(objUrl);
-            };
-            offlineImg.src = objUrl;
-          }).catch(() => {
-            PENDING_REQUESTS.delete(key);
-          });
-          return;
-        }
-        PENDING_REQUESTS.delete(key);
-        if (fallbackUrl && fallbackUrl !== url) {
-          requestTileImage(fallbackUrl, `${key}_fb`, onLoaded);
-        }
-      }).catch(() => {
-        PENDING_REQUESTS.delete(key);
-      });
-    } else {
-      PENDING_REQUESTS.delete(key);
-      if (fallbackUrl && fallbackUrl !== url) {
-        requestTileImage(fallbackUrl, `${key}_fb`, onLoaded);
-      }
-    }
+    if (isDone) return;
+    isDone = true;
+    loadTileFromCacheDirectly(url, key, onLoaded, fallbackUrl);
   };
 
-  // Immediate direct start - no async microtask delays!
+  // Immediate direct start
   img.src = url;
 
   return null;
