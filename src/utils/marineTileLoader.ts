@@ -14,6 +14,7 @@
 import { WorkingAreaRecord } from '../types';
 
 export type LiveTileProvider = 
+  | 'navionics_vector'
   | 'google_hybrid'
   | 'google_satellite'
   | 'google_nautical'
@@ -32,9 +33,16 @@ export interface TileProviderOption {
 
 export const LIVE_TILE_PROVIDERS: TileProviderOption[] = [
   {
+    id: 'navionics_vector',
+    name: 'Boating HD (Navionics Vector)',
+    badge: 'Boating HD',
+    description: 'High-definition marine chart with docks, breakwaters, marinas, depth contours & OpenSeaMap buoys',
+    maxZoom: 20
+  },
+  {
     id: 'google_hybrid',
     name: 'Google Marine Hybrid',
-    badge: 'Recommended',
+    badge: 'Satellite + Info',
     description: 'High-resolution satellite imagery with ports, channels, and coastal labels',
     maxZoom: 22
   },
@@ -155,6 +163,11 @@ export function getLiveTileUrl(provider: LiveTileProvider, z: number, x: number,
   const wrappedX = ((x % maxTile) + maxTile) % maxTile;
 
   switch (provider) {
+    case 'navionics_vector': {
+      const subdomains = ['a', 'b', 'c', 'd'];
+      const s = subdomains[(wrappedX + y) % subdomains.length];
+      return `https://${s}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${wrappedX}/${y}.png`;
+    }
     case 'google_hybrid': {
       const s = (wrappedX + y) % 4;
       return `https://mt${s}.google.com/vt/lyrs=y&x=${wrappedX}&y=${y}&z=${z}`;

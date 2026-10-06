@@ -1034,18 +1034,18 @@ function drawSmoothPolygon(
         showLiveSeamarks
       );
     } else if (mapMode === 'vector') {
-      // 100% Offline ENC Vector Chart - If OpenSeaMap seamarks enabled, overlay transparent seamarks/buoys
-      if (showLiveSeamarks) {
-        renderOpenSeaMapOverlay(
-          ctx,
-          zoom,
-          geoToCanvas,
-          canvasToGeo,
-          width,
-          height,
-          triggerTileRedraw
-        );
-      }
+      // High-Definition Boating HD (Navionics style) Vector Marine Chart with Breakwaters, Docks, Marinas & Seamarks
+      renderLiveMapTiles(
+        ctx,
+        'navionics_vector',
+        zoom,
+        geoToCanvas,
+        canvasToGeo,
+        width,
+        height,
+        triggerTileRedraw,
+        showLiveSeamarks
+      );
     }
 
     // =========================================================================
@@ -3189,29 +3189,29 @@ function drawSmoothPolygon(
             <div className="flex items-center bg-slate-900/90 p-0.5 rounded-lg border border-slate-700 text-xs font-mono shadow-lg backdrop-blur-md shrink-0">
               <button
                 type="button"
-                onClick={() => setMapMode('high_res')}
-                className={`px-1.5 sm:px-2 py-0.5 rounded transition-all text-[9px] sm:text-[10px] font-bold flex items-center gap-1 ${
-                  mapMode === 'high_res'
-                    ? 'bg-emerald-600 text-white shadow'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-                title="High-Resolution Marine Tiles"
-              >
-                <Globe className="w-2.5 h-2.5" />
-                <span>TILES</span>
-              </button>
-              <button
-                type="button"
                 onClick={() => setMapMode('vector')}
                 className={`px-1.5 sm:px-2 py-0.5 rounded transition-all text-[9px] sm:text-[10px] font-bold flex items-center gap-1 ${
                   mapMode === 'vector'
                     ? 'bg-cyan-600 text-white shadow'
                     : 'text-slate-400 hover:text-white'
                 }`}
-                title="Clean Digital Vector Nautical Chart"
+                title="Boating HD Style High-Definition Vector Nautical Chart"
               >
                 <Layers className="w-2.5 h-2.5" />
-                <span>VECTOR</span>
+                <span>BOATING HD</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMapMode('high_res')}
+                className={`px-1.5 sm:px-2 py-0.5 rounded transition-all text-[9px] sm:text-[10px] font-bold flex items-center gap-1 ${
+                  mapMode === 'high_res'
+                    ? 'bg-emerald-600 text-white shadow'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Satellite Imagery"
+              >
+                <Globe className="w-2.5 h-2.5" />
+                <span>SATELLITE</span>
               </button>
             </div>
 
@@ -3338,6 +3338,20 @@ function drawSmoothPolygon(
             <div className="flex items-center bg-slate-900/90 p-0.5 rounded-lg border border-slate-700 text-[10px] font-mono shadow-lg backdrop-blur-md">
               <button
                 type="button"
+                onClick={() => setMapMode('vector')}
+                className={`px-2 py-0.5 rounded transition-all flex items-center gap-1 font-bold ${
+                  mapMode === 'vector'
+                    ? 'bg-cyan-600 text-white shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Boating HD Style High-Definition Vector Nautical Chart"
+              >
+                <Layers className="w-2.5 h-2.5" />
+                <span>BOATING HD</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setMapMode('high_res')}
                 className={`px-2 py-0.5 rounded transition-all flex items-center gap-1 font-bold ${
                   mapMode === 'high_res'
@@ -3347,21 +3361,7 @@ function drawSmoothPolygon(
                 title="High-Resolution Satellite & Marine Slippy Tiles"
               >
                 <Globe className="w-2.5 h-2.5" />
-                <span>TILES</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setMapMode('vector')}
-                className={`px-2 py-0.5 rounded transition-all flex items-center gap-1 font-bold ${
-                  mapMode === 'vector'
-                    ? 'bg-cyan-600 text-white shadow'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="Clean Digital Vector Nautical Chart"
-              >
-                <Layers className="w-2.5 h-2.5" />
-                <span>VECTOR</span>
+                <span>SATELLITE</span>
               </button>
             </div>
 
@@ -3778,9 +3778,9 @@ function drawSmoothPolygon(
               >
                 <div className="flex items-center gap-1 text-[11px]">
                   <Layers className="w-3 h-3" />
-                  <span>ENC Vector</span>
+                  <span>Boating HD Vector</span>
                 </div>
-                <div className="text-[9px] opacity-80 font-mono">100% Offline S-52</div>
+                <div className="text-[9px] opacity-80 font-mono">Navionics HD Nautical</div>
               </button>
             </div>
 
