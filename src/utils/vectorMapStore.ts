@@ -275,7 +275,7 @@ export async function updateVectorMapStore(
 
     // Also download / verify persistent high-res nautical chart tiles
     if (onProgress) onProgress(55);
-    await autoDownloadGlobalMarineOverview('google_nautical', (done, total) => {
+    await autoDownloadGlobalMarineOverview('google_terrain', (done, total) => {
       const p = Math.min(95, 55 + Math.round((done / Math.max(1, total)) * 40));
       if (onProgress) onProgress(p);
     });

@@ -14,13 +14,12 @@
 import { WorkingAreaRecord } from '../types';
 
 export type LiveTileProvider = 
-  | 'navionics_vector'
+  | 'google_terrain'
   | 'google_hybrid'
   | 'google_satellite'
-  | 'google_nautical'
-  | 'osm_mirror_de'
   | 'esri_ocean'
   | 'esri_satellite'
+  | 'osm_mirror_de'
   | 'custom';
 
 export interface TileProviderOption {
@@ -33,38 +32,38 @@ export interface TileProviderOption {
 
 export const LIVE_TILE_PROVIDERS: TileProviderOption[] = [
   {
-    id: 'navionics_vector',
-    name: 'Boating HD (Navionics Vector)',
-    badge: 'Boating HD',
-    description: 'High-definition marine chart with docks, breakwaters, marinas, depth contours & OpenSeaMap buoys',
-    maxZoom: 20
+    id: 'google_terrain',
+    name: 'Marine Nautical Chart (Hydrography)',
+    badge: 'Crisp & Fast',
+    description: 'High-definition nautical chart with breakwaters, docks, harbors, islands & relief (100% stable)',
+    maxZoom: 21
   },
   {
     id: 'google_hybrid',
-    name: 'Google Marine Hybrid',
+    name: 'Google Marine Satellite Hybrid',
     badge: 'Satellite + Info',
     description: 'High-resolution satellite imagery with ports, channels, and coastal labels',
     maxZoom: 22
   },
   {
+    id: 'esri_ocean',
+    name: 'ESRI Ocean & Bathymetry',
+    badge: 'Depth & Seabed',
+    description: 'Official NOAA & GEBCO marine depth contours and oceanic seabed topography',
+    maxZoom: 18
+  },
+  {
     id: 'google_satellite',
-    name: 'Google World Satellite',
+    name: 'Pure World Satellite',
     badge: 'Satellite',
     description: 'Crystal-clear satellite imagery of coastlines, shoals, and shallow reefs',
     maxZoom: 22
   },
   {
-    id: 'google_nautical',
-    name: 'ENC / Nautical Roadmap',
-    badge: 'Vector ENC',
-    description: 'Crisp Electronic Navigational Chart style with soundings, ports & shoreline',
-    maxZoom: 21
-  },
-  {
     id: 'osm_mirror_de',
     name: 'OpenStreetMap Nautical',
     badge: 'Fast CDN',
-    description: 'High-speed European mirror of standard open hydrographic charts',
+    description: 'European mirror of standard open hydrographic charts',
     maxZoom: 20
   },
   {
@@ -137,7 +136,7 @@ if (typeof window !== 'undefined') {
   initCacheIndex().then(() => {
     // Silently pre-cache global vector nautical overview map (zoom 1-5) in background at program startup
     setTimeout(() => {
-      autoDownloadGlobalMarineOverview('google_nautical');
+      autoDownloadGlobalMarineOverview('google_terrain');
     }, 1200);
   });
 }
@@ -163,10 +162,9 @@ export function getLiveTileUrl(provider: LiveTileProvider, z: number, x: number,
   const wrappedX = ((x % maxTile) + maxTile) % maxTile;
 
   switch (provider) {
-    case 'navionics_vector': {
-      const subdomains = ['a', 'b', 'c', 'd'];
-      const s = subdomains[(wrappedX + y) % subdomains.length];
-      return `https://${s}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${wrappedX}/${y}.png`;
+    case 'google_terrain': {
+      const s = (wrappedX + y) % 4;
+      return `https://mt${s}.google.com/vt/lyrs=p&x=${wrappedX}&y=${y}&z=${z}`;
     }
     case 'google_hybrid': {
       const s = (wrappedX + y) % 4;
@@ -175,10 +173,6 @@ export function getLiveTileUrl(provider: LiveTileProvider, z: number, x: number,
     case 'google_satellite': {
       const s = (wrappedX + y) % 4;
       return `https://mt${s}.google.com/vt/lyrs=s&x=${wrappedX}&y=${y}&z=${z}`;
-    }
-    case 'google_nautical': {
-      const s = (wrappedX + y) % 4;
-      return `https://mt${s}.google.com/vt/lyrs=m&x=${wrappedX}&y=${y}&z=${z}`;
     }
     case 'osm_mirror_de': {
       return `https://tile.openstreetmap.de/${z}/${wrappedX}/${y}.png`;
@@ -624,7 +618,7 @@ export function preloadBaseRegionalTiles(centerLon: number, centerLat: number, p
     const numTiles = 1 << z;
     for (let x = 0; x < numTiles; x++) {
       for (let y = 0; y < numTiles; y++) {
-        requestTileImage(getLiveTileUrl('google_nautical', z, x, y), makeTileKey('google_nautical', z, x, y));
+        requestTileImage(getLiveTileUrl('google_terrain', z, x, y), makeTileKey('google_terrain', z, x, y));
         requestTileImage(getLiveTileUrl(provider, z, x, y), makeTileKey(provider, z, x, y));
       }
     }
@@ -643,7 +637,7 @@ export function preloadBaseRegionalTiles(centerLon: number, centerLat: number, p
       for (let dy = -1; dy <= 1; dy++) {
         const tx = ((cx + dx) % numTiles + numTiles) % numTiles;
         const ty = Math.max(0, Math.min(numTiles - 1, cy + dy));
-        requestTileImage(getLiveTileUrl('google_nautical', z, tx, ty), makeTileKey('google_nautical', z, tx, ty));
+        requestTileImage(getLiveTileUrl('google_terrain', z, tx, ty), makeTileKey('google_terrain', z, tx, ty));
         requestTileImage(getLiveTileUrl(provider, z, tx, ty), makeTileKey(provider, z, tx, ty));
       }
     }
@@ -830,7 +824,7 @@ export function deleteWorkingAreaRecord(id: string): void {
  */
 let isAutoBackgroundCacheRunning = false;
 export async function autoDownloadGlobalMarineOverview(
-  provider: LiveTileProvider = 'google_nautical',
+  provider: LiveTileProvider = 'google_terrain',
   onProgress?: (done: number, total: number) => void
 ): Promise<{ success: boolean; total: number }> {
   if (isAutoBackgroundCacheRunning) return { success: true, total: 0 };
@@ -923,7 +917,7 @@ export async function autoDownloadGlobalMarineOverview(
  * User-triggered Map Update: Refreshes global maritime routes, coastlines, and navigational channels.
  */
 export async function updateGlobalMarineMap(
-  provider: LiveTileProvider = 'google_nautical',
+  provider: LiveTileProvider = 'google_terrain',
   onProgress?: (done: number, total: number) => void
 ): Promise<{ success: boolean; total: number }> {
   return await autoDownloadGlobalMarineOverview(provider, onProgress);

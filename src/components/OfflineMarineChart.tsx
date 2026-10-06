@@ -363,7 +363,7 @@ export const OfflineMarineChart: React.FC<OfflineMarineChartProps> = ({
     // Silently auto-cache global marine overview (zoom 1-5, all global oceans & shipping lanes)
     // in background so user has 100% offline access anywhere in the world!
     const timer = setTimeout(() => {
-      autoDownloadGlobalMarineOverview('google_nautical')
+      autoDownloadGlobalMarineOverview('google_terrain')
         .then(() => getCachedTileStats().then(setCacheStats))
         .catch(() => {});
     }, 2500);
@@ -1034,10 +1034,10 @@ function drawSmoothPolygon(
         showLiveSeamarks
       );
     } else if (mapMode === 'vector') {
-      // High-Definition Boating HD (Navionics style) Vector Marine Chart with Breakwaters, Docks, Marinas & Seamarks
+      // High-Definition Marine Nautical Chart (Google Terrain & Hydrography - 100% stable, fast & detailed)
       renderLiveMapTiles(
         ctx,
-        'navionics_vector',
+        'google_terrain',
         zoom,
         geoToCanvas,
         canvasToGeo,
@@ -3195,10 +3195,10 @@ function drawSmoothPolygon(
                     ? 'bg-cyan-600 text-white shadow'
                     : 'text-slate-400 hover:text-white'
                 }`}
-                title="Boating HD Style High-Definition Vector Nautical Chart"
+                title="Marine Nautical Chart (Hydrography, Docks & Relief)"
               >
                 <Layers className="w-2.5 h-2.5" />
-                <span>BOATING HD</span>
+                <span>CHART</span>
               </button>
               <button
                 type="button"
@@ -3344,10 +3344,10 @@ function drawSmoothPolygon(
                     ? 'bg-cyan-600 text-white shadow'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
-                title="Boating HD Style High-Definition Vector Nautical Chart"
+                title="Marine Nautical Chart (Hydrography, Docks & Relief)"
               >
                 <Layers className="w-2.5 h-2.5" />
-                <span>BOATING HD</span>
+                <span>CHART</span>
               </button>
 
               <button
@@ -3778,9 +3778,9 @@ function drawSmoothPolygon(
               >
                 <div className="flex items-center gap-1 text-[11px]">
                   <Layers className="w-3 h-3" />
-                  <span>Boating HD Vector</span>
+                  <span>Marine Nautical Chart</span>
                 </div>
-                <div className="text-[9px] opacity-80 font-mono">Navionics HD Nautical</div>
+                <div className="text-[9px] opacity-80 font-mono">Hydrography, Docks & Relief</div>
               </button>
             </div>
 
