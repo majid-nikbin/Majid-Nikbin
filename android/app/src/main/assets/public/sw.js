@@ -1,9 +1,12 @@
-// Mariner Pro - High Performance 100% Offline Marine Service Worker
-const CACHE_NAME = 'mariner-pro-offline-v3';
+// Mariner Pro-Link - High Performance 100% Offline Marine Service Worker
+const CACHE_NAME = 'mariner-pro-offline-v2';
 const STATIC_ASSETS = [
   './',
   './index.html',
-  './manifest.json'
+  './manifest.json',
+  './icon-192.png',
+  './icon-512.png',
+  './icon.png'
 ];
 
 self.addEventListener('install', (event) => {
@@ -27,6 +30,7 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   
+  // Ignore non-GET and chrome-extension requests
   if (req.method !== 'GET' || req.url.startsWith('chrome-extension://')) {
     return;
   }
@@ -76,6 +80,7 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     caches.match(req).then((cachedRes) => {
       if (cachedRes) {
+        // Return cached immediately; optionally refresh in background
         fetch(req).then((networkRes) => {
           if (networkRes && networkRes.status === 200) {
             caches.open(CACHE_NAME).then((cache) => cache.put(req, networkRes));
@@ -91,6 +96,7 @@ self.addEventListener('fetch', (event) => {
         }
         return networkRes;
       }).catch(() => {
+        // Fallback or empty response if fully offline and not cached yet
         return cachedRes || new Response('', { status: 408, statusText: 'Offline Asset Unavailable' });
       });
     })

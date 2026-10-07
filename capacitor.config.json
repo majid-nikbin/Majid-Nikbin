@@ -2,5 +2,7 @@
   "appId": "com.mariner.pro",
   "appName": "Mariner Pro",
   "webDir": "dist",
-  "bundledWebRuntime": false
+  "server": {
+    "androidScheme": "https"
+  }
 }

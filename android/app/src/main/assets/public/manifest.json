@@ -1,23 +1,61 @@
 {
+  "id": "./",
+  "name": "Mariner Pro-Link NMEA 0183",
   "short_name": "Mariner Pro",
-  "name": "Marine Compass & NMEA 0183 Transceiver",
+  "description": "Marine Compass & GPS with standard marine coordinates and NMEA 0183 USB OTG Transceiver.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone",
+    "minimal-ui"
+  ],
+  "orientation": "any",
+  "background_color": "#0F172A",
+  "theme_color": "#020617",
   "icons": [
     {
-      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192' fill='%2306b6d4'%3E%3Ccircle cx='96' cy='96' r='90' fill='%230f172a' stroke='%2306b6d4' stroke-width='8'/%3E%3Cpolygon points='96,24 116,96 96,168 76,96' fill='%23ef4444'/%3E%3C/svg%3E",
+      "src": "./icon-192.png",
       "sizes": "192x192",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512' fill='%2306b6d4'%3E%3Ccircle cx='256' cy='256' r='240' fill='%230f172a' stroke='%2306b6d4' stroke-width='16'/%3E%3Cpolygon points='256,64 300,256 256,448 212,256' fill='%23ef4444'/%3E%3C/svg%3E",
+      "src": "./icon-512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
-  "start_url": "./",
-  "display": "standalone",
-  "theme_color": "#020617",
-  "background_color": "#020617",
-  "orientation": "any"
+  "screenshots": [
+    {
+      "src": "./screenshot-mobile.png",
+      "sizes": "540x720",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Mobile Compass Display"
+    },
+    {
+      "src": "./screenshot-desktop.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Full Navigation Console"
+    }
+  ],
+  "categories": [
+    "navigation",
+    "utilities",
+    "travel"
+  ],
+  "prefer_related_applications": false,
+  "lang": "en",
+  "dir": "ltr"
 }

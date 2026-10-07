@@ -1,103 +1,173 @@
 import React from 'react';
-import { Usb, ExternalLink, CheckCircle2, ShieldCheck, Cpu, RefreshCw } from 'lucide-react';
-import { serialService } from '../services/serialService';
+import { 
+  Usb, 
+  CheckCircle2, 
+  ExternalLink, 
+  Info, 
+  AlertTriangle,
+  Layers,
+  Cable,
+  Workflow
+} from 'lucide-react';
 
 interface UsbDriverGuideProps {
-  onClose: () => void;
-  onConnectUsb: () => void;
+  isNightMode?: boolean;
 }
 
-export const UsbDriverGuide: React.FC<UsbDriverGuideProps> = ({ onClose, onConnectUsb }) => {
-  const isWebSerial = serialService.isWebSerialSupported();
-  const isWebUsb = serialService.isWebUsbSupported();
-  const localAppUrl = serialService.getLocalLoopbackUrl();
-
-  const handleOpenLocalInChrome = () => {
-    // Open inside local browser / loopback to this exact local app (ZERO GITHUB URLS!)
-    window.open(localAppUrl, '_blank');
-  };
+export const UsbDriverGuide: React.FC<UsbDriverGuideProps> = ({ isNightMode = false }) => {
+  const drivers = [
+    {
+      name: 'CH340 / CH341 / CH343',
+      vendor: 'WCH (WinChipHead)',
+      desc: 'Most widely used USB-to-TTL UART converter in marine serial adapters, Arduino modules, and RS-422/RS-485 dongles.',
+      status: 'Fully Supported via WebUSB & Web Serial',
+      highlight: true
+    },
+    {
+      name: 'CP2102 / CP2104 / CP2108',
+      vendor: 'Silicon Labs',
+      desc: 'High stability baud rate generator commonly found in commercial marine navigation bridges and autopilot interfaces.',
+      status: 'Fully Supported via Native CDC ACM',
+      highlight: true
+    },
+    {
+      name: 'FT232R / FT232H / FTDI',
+      vendor: 'FTDI Chip',
+      desc: 'Standard commercial marine interface chipset with low latency and accurate bit timing for high baud rates.',
+      status: 'Fully Supported',
+      highlight: true
+    },
+    {
+      name: 'PL2303 / PL2303HX / GT',
+      vendor: 'Prolific Technology',
+      desc: 'Standard USB to serial bridge used in legacy GPS receivers and chartplotter connection cables.',
+      status: 'Supported via CDC ACM',
+      highlight: false
+    },
+    {
+      name: 'MAX485 / SP3485 (RS-485 / RS-422)',
+      vendor: 'Maxim / Exar Transceivers',
+      desc: 'Differential marine bus transceiver paired with USB-UART chips for long-distance RS-422 NMEA 0183 transmission.',
+      status: 'Standard Marine Recommended',
+      highlight: true
+    }
+  ];
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 font-sans">
-      <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-2xl p-5 shadow-2xl flex flex-col gap-4 text-right">
-        {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-xl bg-cyan-950 text-cyan-400 border border-cyan-800">
-              <Usb className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-white">راهنمای اتصال مستقیم USB OTG</h3>
-              <p className="text-[11px] text-slate-400">بدون نیاز به اینترنت • اجرای ۱۰۰٪ محلی و آفلاین</p>
-            </div>
+    <div
+      id="usb-driver-guide-panel"
+      className={`p-6 rounded-2xl border transition-all flex flex-col gap-6 ${
+        isNightMode
+          ? 'bg-zinc-950/80 border-red-900/50 text-red-100 shadow-xl'
+          : 'bg-slate-800/40 border-slate-700 text-slate-200 shadow-xl'
+      }`}
+    >
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 bg-slate-900 rounded-xl border border-slate-700">
+        <div className="flex items-center gap-3.5">
+          <div className="w-10 h-10 rounded-lg bg-cyan-600/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+            <Usb className="w-5 h-5" />
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-white"
-          >
-            ✕
-          </button>
+          <div>
+            <h2 className="text-sm font-bold text-white uppercase tracking-wider">
+              Marine USB OTG Hardware & Driver Compatibility
+            </h2>
+            <p className="text-xs text-slate-400 font-mono mt-0.5">
+              Plug-and-play USB Serial and RS-422/RS-485 converters for Android smartphones and tablets
+            </p>
+          </div>
         </div>
+      </div>
 
-        {/* Steps */}
-        <div className="flex flex-col gap-3 text-xs leading-relaxed text-slate-300">
-          <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-start gap-2.5">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-            <div>
-              <strong className="text-white block mb-0.5">۱. اتصال مبدل سخت‌افزاری با کابل OTG:</strong>
-              مبدل USB به سریال (CH340، CP2102، FTDI یا دستگاه NMEA) را با کابل OTG به گوشی متصل نمایید.
-            </div>
-          </div>
+      {/* Driver Chips Grid */}
+      <div className="flex flex-col gap-3">
+        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+          Supported Marine USB-to-UART & Differential Bridge Chipsets
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+          {drivers.map((drv, idx) => (
+            <div
+              key={idx}
+              className={`p-4 rounded-xl border flex flex-col justify-between gap-3 ${
+                drv.highlight
+                  ? 'bg-slate-900 border-cyan-500/40'
+                  : 'bg-slate-900/70 border-slate-700'
+              }`}
+            >
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white font-mono text-sm">{drv.name}</span>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                </div>
+                <span className="text-[11px] font-bold text-cyan-400">{drv.vendor}</span>
+                <p className="text-xs text-slate-300 mt-1 leading-relaxed">{drv.desc}</p>
+              </div>
 
-          <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-start gap-2.5">
-            <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
-            <div>
-              <strong className="text-white block mb-0.5">۲. مجوز دسترسی و نرخ تبادل (Baud Rate):</strong>
-              نرخ پیش‌فرض دریانوردی ۴۸۰۰ باد است (برای AIS عدد ۳۸۴۰۰). پنجره درخواست اجازه اتصال به دستگاه روی صفحه باز خواهد شد.
-            </div>
-          </div>
-
-          <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-start gap-2.5">
-            <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-            <div>
-              <strong className="text-white block mb-0.5">۳. باز کردن مستقیم در مرورگر Chrome:</strong>
-              در صورتی که در برنامه وب‌ویو هستید، برای فعال‌سازی کامل پورت سریال می‌توانید همین صفحه را مستقیماً در مرورگر Chrome باز کنید:
-              <div className="mt-2">
-                <button
-                  type="button"
-                  onClick={handleOpenLocalInChrome}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 font-bold flex items-center gap-1.5 border border-slate-700 active:scale-95 transition-all"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>اجرای مستقیم در Chrome (Loopback محلی)</span>
-                </button>
+              <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[11px] font-mono">
+                <span className="text-slate-400">Driver Status:</span>
+                <span className="text-emerald-400 font-bold">{drv.status}</span>
               </div>
             </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Marine NMEA 0183 Wiring & Hardware Connection Steps */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Step 1: OTG Setup */}
+        <div className="p-4 bg-slate-900 rounded-xl border border-slate-700 flex flex-col gap-2.5">
+          <div className="flex items-center gap-2 text-xs font-bold text-amber-300 uppercase tracking-wider">
+            <Cable className="w-4 h-4" />
+            <span>1. Android USB OTG Host Setup</span>
           </div>
+          <ul className="text-xs text-slate-300 space-y-2 list-disc list-inside leading-relaxed">
+            <li>
+              Plug the <strong className="text-white">USB Type-C OTG Host adapter</strong> into your smartphone.
+            </li>
+            <li>
+              Connect your USB-to-Serial converter module (CH340, CP2102, FTDI, or MAX485 dongle) to the OTG adapter.
+            </li>
+            <li>
+              <strong className="text-amber-400">Important phone setting:</strong> On Xiaomi, Realme, Oppo, and OnePlus devices, go to <em>Settings &gt; Additional Settings &gt; OTG Connection</em> and toggle it <strong className="text-green-400">ON</strong>.
+            </li>
+          </ul>
         </div>
 
-        {/* Bottom Actions */}
-        <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
-          <button
-            type="button"
-            onClick={() => {
-              onClose();
-              onConnectUsb();
-            }}
-            className="flex-1 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-cyan-950/50"
-          >
-            <Usb className="w-4 h-4" />
-            <span>تلاش برای اتصال به پورت USB</span>
-          </button>
+        {/* Step 2: RS-422 Differential Wiring Standard */}
+        <div className="p-4 bg-slate-900 rounded-xl border border-slate-700 flex flex-col gap-2.5">
+          <div className="flex items-center gap-2 text-xs font-bold text-cyan-300 uppercase tracking-wider">
+            <Workflow className="w-4 h-4" />
+            <span>2. Marine NMEA 0183 Wiring Standard (RS-422 / RS-485)</span>
+          </div>
+          <div className="text-xs text-slate-300 space-y-1.5 font-mono text-[11px] bg-slate-950 p-3 rounded-lg border border-slate-800">
+            <div className="flex justify-between">
+              <span className="text-green-400">Phone TX+ (A)</span>
+              <span className="text-slate-400">→ Chartplotter / ECDIS RX+ (In A)</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-green-400">Phone TX- (B)</span>
+              <span className="text-slate-400">→ Chartplotter / ECDIS RX- (In B)</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-cyan-400">Phone RX+ (A)</span>
+              <span className="text-slate-400">← Heading Sensor / GPS TX+ (Out A)</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Ground / Shield</span>
+              <span className="text-slate-400">⏚ Common Boat Vessel Ground / Cable Shield</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:text-white text-xs font-bold"
-          >
-            بستن
-          </button>
+      {/* Browser Web Serial Flag Notice */}
+      <div className="p-4 bg-slate-900 border border-cyan-500/30 rounded-xl flex items-start gap-3 text-xs text-slate-300">
+        <Info className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+        <div className="flex-1 space-y-1">
+          <p className="font-bold text-white">Browser USB Serial Access:</p>
+          <p className="text-slate-400 text-[11px] leading-relaxed">
+            Chrome on Android natively communicates directly with the USB serial converter. When prompted by the browser, select your USB Serial device from the popup list to grant access.
+          </p>
         </div>
       </div>
     </div>

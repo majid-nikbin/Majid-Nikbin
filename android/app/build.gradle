@@ -1,14 +1,14 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace = "com.mariner.pro"
-    compileSdk = rootProject.ext.compileSdkVersion
+    namespace "com.mariner.pro"
+    compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
         applicationId "com.mariner.pro"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 45
+        versionName "1.0.45"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,8 +16,29 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
-    buildTypes {
+    signingConfigs {
         release {
+            def keystoreFile = file('mariner-release.keystore')
+            if (keystoreFile.exists()) {
+                storeFile keystoreFile
+                storePassword 'mariner1234'
+                keyAlias 'mariner'
+                keyPassword 'mariner1234'
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            def keystoreFile = file('mariner-release.keystore')
+            if (keystoreFile.exists()) {
+                signingConfig signingConfigs.release
+            }
+        }
+        release {
+            def keystoreFile = file('mariner-release.keystore')
+            if (keystoreFile.exists()) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
