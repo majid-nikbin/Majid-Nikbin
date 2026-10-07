@@ -18,7 +18,19 @@ export const APP_CHANGELOG_HIGHLIGHTS = [
 
 /**
  * Local Loopback URL for WebUSB / WebSerial Hardware Driver
- * 100% Offline Local Operation - Loops back directly inside the local app!
+ * 100% Offline Local Operation - Served by internal embedded server on port 8080
  */
-export const WEB_HARDWARE_MIRROR_URL = typeof window !== 'undefined' ? window.location.href : 'http://localhost:3000';
+export function getLocalHardwareMirrorUrl(): string {
+  if (typeof window !== 'undefined') {
+    const origin = window.location.origin || '';
+    if (origin.startsWith('capacitor:') || (origin.includes('localhost') && !window.location.port)) {
+      return 'http://localhost:8080';
+    }
+    return window.location.href;
+  }
+  return 'http://localhost:8080';
+}
+
+export const WEB_HARDWARE_MIRROR_URL = 'http://localhost:8080';
+
 

@@ -35,7 +35,7 @@ import {
   MYKET_DETAILS_INTENT, 
   MYKET_WEB_URL 
 } from '../services/licenseService';
-import { WEB_HARDWARE_MIRROR_URL } from '../config/version';
+import { WEB_HARDWARE_MIRROR_URL, getLocalHardwareMirrorUrl } from '../config/version';
 
 interface NmeaMonitorProps {
   serialStatus: SerialPortStatus;
@@ -166,15 +166,8 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
       return;
     }
 
-    // If running in a web browser on a public domain, use the current origin/href; otherwise fallback to the mirror
-    let targetUrl = HARDWARE_SERIAL_FALLBACK_URL;
-    if (typeof window !== 'undefined' && window.location.origin) {
-      const origin = window.location.origin;
-      const isLocalOrCapacitor = origin.includes('localhost') || origin.startsWith('capacitor:') || origin.startsWith('http://localhost');
-      if (!isLocalOrCapacitor) {
-        targetUrl = window.location.href;
-      }
-    }
+    // Target URL for WebUSB/WebSerial: loops directly to the local offline server (port 8080) or current href
+    const targetUrl = getLocalHardwareMirrorUrl();
 
     try {
       // 1. Try official Capacitor Browser plugin
