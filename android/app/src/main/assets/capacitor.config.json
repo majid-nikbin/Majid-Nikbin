@@ -1,6 +1,6 @@
 {
-	"appId": "com.mariner.pro",
-	"appName": "Mariner Pro",
-	"webDir": "dist",
-	"bundledWebRuntime": false
+  "appId": "com.mariner.pro",
+  "appName": "Mariner Pro",
+  "webDir": "dist",
+  "bundledWebRuntime": false
 }
