@@ -18,7 +18,7 @@ import { RouteNavigationTab } from './components/RouteNavigationTab';
 import { NmeaTransmitter } from './components/NmeaTransmitter';
 import { NmeaMonitor } from './components/NmeaMonitor';
 import { UsbDriverGuide } from './components/UsbDriverGuide';
-import { formatMarineDDM, formatHeadingDeg } from './utils/geo';
+import { formatMarineDDM, formatHeadingDeg, estimateMagneticDeclination } from './utils/geo';
 import { Navigation, ArrowRight } from 'lucide-react';
 
 export default function App() {
@@ -141,7 +141,7 @@ export default function App() {
     intervalMs: 1000,
     talkerIdGps: 'GP',
     talkerIdHeading: 'HC',
-    magVariation: 2.0,
+    magVariation: 3.5,
     headingCorrection: 0.0,
     activeSentences: {
       HDG: true,
@@ -187,6 +187,19 @@ export default function App() {
     requestGpsFix,
     setGpsData,
   } = useSensors(nmeaConfig.magVariation, nmeaConfig.headingCorrection || 0);
+
+  // Automatically calculate regional magnetic declination based on GPS position
+  useEffect(() => {
+    if (gps.latitude !== null && gps.longitude !== null) {
+      const estimatedDecl = estimateMagneticDeclination(gps.latitude, gps.longitude);
+      setNmeaConfig((prev) => {
+        if (Math.abs(prev.magVariation - estimatedDecl) > 0.05) {
+          return { ...prev, magVariation: estimatedDecl };
+        }
+        return prev;
+      });
+    }
+  }, [gps.latitude, gps.longitude]);
 
   const handleSetManualGps = (lat: number, lon: number) => {
     setGpsData((prev) => ({

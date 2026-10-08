@@ -1,8 +1,17 @@
 const fs = require('fs');
 const path = require('path');
 
-const runNumber = process.argv[2] || '1';
-console.log(`==> Configuring Android build for Run #${runNumber}...`);
+const rawRunNumber = parseInt(process.argv[2] || '1', 10);
+// Reset version to start from 1 for Myket store release, incrementing on each build
+let myketVersionCode = rawRunNumber;
+if (rawRunNumber >= 44) {
+  myketVersionCode = rawRunNumber - 43;
+} else if (rawRunNumber <= 0 || isNaN(rawRunNumber)) {
+  myketVersionCode = 1;
+}
+const myketVersionName = `1.0.${myketVersionCode}`;
+
+console.log(`==> Configuring Android build for Run #${rawRunNumber} -> Myket Version: ${myketVersionName} (Code: ${myketVersionCode})...`);
 
 const rootDir = process.cwd();
 const androidDir = path.join(rootDir, 'android');
@@ -141,10 +150,10 @@ android {
         applicationId "com.mariner.pro"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode ${runNumber}
-        versionName "1.0.${runNumber}"
+        versionCode ${myketVersionCode}
+        versionName "${myketVersionName}"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        aaptOptions {
+        aaptOptions { 
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
@@ -210,7 +219,28 @@ try {
 `;
 
   fs.writeFileSync(buildGradlePath, cleanBuildGradle, 'utf8');
-  console.log(`==> Successfully updated android/app/build.gradle: versionCode ${runNumber}, versionName 1.0.${runNumber}, and crash-proof persistent signing.`);
+  console.log(`==> Successfully updated android/app/build.gradle: versionCode ${myketVersionCode}, versionName ${myketVersionName}, and crash-proof persistent signing.`);
+}
+
+// 5. Synchronize src/config/version.ts and package.json so Developer Info matches installed Android version
+const versionTsPath = path.join(rootDir, 'src', 'config', 'version.ts');
+if (fs.existsSync(versionTsPath)) {
+  let vContent = fs.readFileSync(versionTsPath, 'utf8');
+  vContent = vContent.replace(/export const APP_VERSION = '[^']+';/, `export const APP_VERSION = '${myketVersionName}';`);
+  vContent = vContent.replace(/export const APP_BUILD = '[^']+';/, `export const APP_BUILD = 'Build ${myketVersionCode}';`);
+  vContent = vContent.replace(/export const APP_RELEASE_NAME = `[^`]+`;/, `export const APP_RELEASE_NAME = \`Mariner Pro-Link v\${APP_VERSION}\`;`);
+  fs.writeFileSync(versionTsPath, vContent, 'utf8');
+  console.log(`==> Synchronized src/config/version.ts to v${myketVersionName} (Build ${myketVersionCode})`);
+}
+
+const pkgPath = path.join(rootDir, 'package.json');
+if (fs.existsSync(pkgPath)) {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    pkg.version = myketVersionName;
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+    console.log(`==> Synchronized package.json to v${myketVersionName}`);
+  } catch (e) {}
 }
 
 console.log('==> Android setup completed successfully!');

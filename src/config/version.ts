@@ -4,10 +4,10 @@
  * always reflect the latest release version and build date.
  */
 
-export const APP_VERSION = '2.9.2';
-export const APP_BUILD = '2026.09';
+export const APP_VERSION = '1.0.1';
+export const APP_BUILD = 'Build 1';
 export const APP_RELEASE_NAME = `Mariner Pro-Link v${APP_VERSION}`;
-export const APP_BUILD_DATE = 'September 2026';
+export const APP_BUILD_DATE = 'October 2026';
 export const APP_CHANGELOG_HIGHLIGHTS = [
   'Deep Zoom up to 2,500,000x for harbors, docks & tactical navigation',
   'Background NMEA 0183 transmission with Screen WakeLock',

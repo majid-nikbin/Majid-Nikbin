@@ -37,6 +37,7 @@ import {
   MYKET_WEB_URL
 } from '../services/licenseService';
 import { Browser } from '@capacitor/browser';
+import { App as CapApp } from '@capacitor/app';
 import { APP_VERSION, APP_BUILD } from '../config/version';
 
 export type ActiveTab = 'nav' | 'route' | 'transmit' | 'monitor' | 'drivers';
@@ -82,6 +83,26 @@ export const Header: React.FC<HeaderProps> = ({
   const [devPinError, setDevPinError] = useState<string | null>(null);
   const [isDevUnlocked, setIsDevUnlocked] = useState<boolean>(() => isDeveloperModeUnlocked());
   const [otgLicense, setOtgLicense] = useState(() => getOtgLicenseStatus());
+  const [appVersionDisplay, setAppVersionDisplay] = useState<string>(APP_VERSION);
+  const [appBuildDisplay, setAppBuildDisplay] = useState<string>(APP_BUILD);
+
+  // Synchronize with native Android package version (via Capacitor App)
+  useEffect(() => {
+    const fetchNativeVersion = async () => {
+      try {
+        const info = await CapApp.getInfo();
+        if (info && info.version) {
+          setAppVersionDisplay(info.version);
+          if (info.build) {
+            setAppBuildDisplay(`Build ${info.build}`);
+          }
+        }
+      } catch (e) {
+        // Fallback to static APP_VERSION
+      }
+    };
+    fetchNativeVersion();
+  }, []);
 
   const isActivated = otgLicense.isActivated || isDevUnlocked;
 
@@ -216,7 +237,7 @@ export const Header: React.FC<HeaderProps> = ({
                   MARINER <span className="text-cyan-400 group-hover:text-cyan-300">PRO-LINK</span>
                 </span>
                 <span className="px-1.5 py-0.5 rounded bg-slate-800 border border-cyan-500/40 text-[10px] font-mono text-cyan-300 font-bold shadow-sm">
-                  v{APP_VERSION}
+                  v{appVersionDisplay}
                 </span>
               </div>
               {isActivated && (
@@ -426,7 +447,7 @@ export const Header: React.FC<HeaderProps> = ({
                     Mariner Pro-Link
                   </h3>
                   <span className="text-xs font-mono font-bold text-cyan-400">
-                    version: v{APP_VERSION} Release
+                    version: v{appVersionDisplay} Release
                   </span>
                 </div>
               </div>
@@ -522,7 +543,7 @@ export const Header: React.FC<HeaderProps> = ({
                   Software Version
                 </span>
                 <span className="text-xs font-mono font-bold text-cyan-300 bg-cyan-950/60 border border-cyan-500/40 px-2 py-0.5 rounded shadow-sm">
-                  v{APP_VERSION} ({APP_BUILD})
+                  v{appVersionDisplay} ({appBuildDisplay})
                 </span>
               </div>
 

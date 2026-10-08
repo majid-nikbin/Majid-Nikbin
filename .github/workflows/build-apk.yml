@@ -32,6 +32,9 @@ jobs:
       - name: Install Project Dependencies
         run: npm install
 
+      - name: Synchronize Version Across Project (Myket Reset & Semantic Versioning)
+        run: node scripts/setup-android-build.cjs ${{ github.run_number }}
+
       - name: Build Web Assets
         run: |
           npm run build

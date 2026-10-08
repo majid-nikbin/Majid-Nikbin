@@ -1,4 +1,4 @@
-export type HeadingSource = 'magnetic' | 'gps';
+export type HeadingSource = 'magnetic' | 'true' | 'gps';
 
 export type CoordFormat = 'DDM' | 'DMS' | 'DD';
 

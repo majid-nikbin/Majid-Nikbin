@@ -65,6 +65,9 @@ export const CompassDial: React.FC<CompassDialProps> = ({
       }
       return lastValidGpsHeadingRef.current || compass.trueHeading;
     }
+    if (headingSource === 'true') {
+      return compass.trueHeading;
+    }
     return compass.magneticHeading;
   }, [headingSource, gps.heading, compass.trueHeading, compass.magneticHeading]);
 
@@ -199,28 +202,46 @@ export const CompassDial: React.FC<CompassDialProps> = ({
               id="btn-source-magnetic"
               type="button"
               onClick={() => onSourceChange('magnetic')}
-              className={`px-2.5 py-1 rounded font-bold transition-colors ${
+              className={`px-2 py-1 rounded font-bold transition-colors ${
                 headingSource === 'magnetic'
                   ? isNightMode
                     ? 'bg-red-700 text-white'
                     : 'bg-cyan-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-white'
               }`}
+              title="Magnetic Heading (شمال مغناطیسی)"
             >
               Magnetic
+            </button>
+
+            <button
+              id="btn-source-true"
+              type="button"
+              onClick={() => onSourceChange('true')}
+              className={`px-2 py-1 rounded font-bold transition-colors ${
+                headingSource === 'true'
+                  ? isNightMode
+                    ? 'bg-red-700 text-white'
+                    : 'bg-cyan-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="True Heading with declination (شمال واقعی گوشی)"
+            >
+              True North
             </button>
 
             <button
               id="btn-source-gps"
               type="button"
               onClick={() => onSourceChange('gps')}
-              className={`px-2.5 py-1 rounded font-bold transition-colors ${
+              className={`px-2 py-1 rounded font-bold transition-colors ${
                 headingSource === 'gps'
                   ? isNightMode
                     ? 'bg-red-700 text-white'
                     : 'bg-cyan-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-white'
               }`}
+              title="GPS Course Over Ground (مسیر ماهواره‌ای)"
             >
               GPS Track
             </button>
@@ -535,7 +556,7 @@ export const CompassDial: React.FC<CompassDialProps> = ({
               {activeCardinal}
             </span>
             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
-              {headingSource === 'magnetic' ? 'MAGNETIC' : 'GPS TRACK'}
+              {headingSource === 'magnetic' ? 'MAGNETIC' : headingSource === 'true' ? 'TRUE NORTH' : 'GPS TRACK'}
             </span>
           </div>
         </div>

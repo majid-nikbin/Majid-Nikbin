@@ -103,6 +103,21 @@ export function formatHeadingDeg(deg: number | null): string {
 }
 
 /**
+ * Estimates magnetic declination (variation in degrees) based on geographic coordinates.
+ * Positive = East (+), Negative = West (-)
+ * In the Persian Gulf & Middle East region, declination is typically +2.8° to +4.8° East.
+ */
+export function estimateMagneticDeclination(lat: number, lon: number): number {
+  if (lat >= 20 && lat <= 40 && lon >= 40 && lon <= 65) {
+    const base = 3.2;
+    const latOffset = (lat - 26.0) * 0.15;
+    const lonOffset = (lon - 55.0) * 0.04;
+    return Number((base + latOffset + lonOffset).toFixed(1));
+  }
+  return 3.5;
+}
+
+/**
  * Calculate Great-Circle Distance between two coordinates in Nautical Miles (NM)
  */
 export function calculateDistanceNm(
