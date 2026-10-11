@@ -22,7 +22,12 @@ import {
   Route as RouteIcon,
   Check,
   ShoppingCart,
-  ExternalLink
+  ExternalLink,
+  Terminal,
+  ShieldAlert,
+  Play,
+  Clock,
+  RotateCcw
 } from 'lucide-react';
 import { SerialPortStatus } from '../types';
 import { 
@@ -34,13 +39,16 @@ import {
   setDeveloperMode,
   DEVELOPER_PASSCODE,
   MYKET_DETAILS_INTENT,
-  MYKET_WEB_URL
+  MYKET_WEB_URL,
+  simulateAppAgeDays,
+  deactivateLicense,
+  activateViaMyket
 } from '../services/licenseService';
 import { Browser } from '@capacitor/browser';
 import { App as CapApp } from '@capacitor/app';
 import { APP_VERSION, APP_BUILD } from '../config/version';
 
-export type ActiveTab = 'nav' | 'route' | 'transmit' | 'monitor' | 'drivers';
+export type ActiveTab = 'nav' | 'route' | 'transmit' | 'monitor' | 'drivers' | 'keygen';
 
 interface HeaderProps {
   activeTab: ActiveTab;
@@ -201,6 +209,8 @@ export const Header: React.FC<HeaderProps> = ({
       setDevPinInput('');
       setDevPinError(null);
       showToastMessage('✓ Developer Mode Active');
+      setShowAboutModal(false);
+      onTabChange('keygen');
     } else {
       setDevPinError('Invalid passcode');
     }
@@ -374,6 +384,25 @@ export const Header: React.FC<HeaderProps> = ({
             <Activity className="w-3.5 h-3.5 shrink-0" />
             <span className="truncate"><span className="hidden sm:inline">NMEA </span>Monitor</span>
           </button>
+
+          {isDevUnlocked && (
+            <button
+              id="tab-btn-keygen"
+              type="button"
+              onClick={() => onTabChange('keygen')}
+              className={`flex items-center justify-center gap-1 sm:gap-2 px-1.5 sm:px-3.5 py-2 rounded-lg text-[11px] sm:text-xs font-bold font-mono transition-all select-none min-w-0 ${
+                activeTab === 'keygen'
+                  ? isNightMode
+                    ? 'bg-amber-900/80 text-white border border-amber-700 shadow-sm'
+                    : 'bg-amber-500 text-slate-950 shadow-md shadow-amber-950 font-black'
+                  : 'text-amber-400 hover:text-amber-200 hover:bg-slate-800/50'
+              }`}
+              title="Developer License & Myket In-App Purchase Simulator"
+            >
+              <Terminal className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Dev</span>
+            </button>
+          )}
         </nav>
 
         {/* Right: Marine Status Indicators & Night Vision Toggle (Desktop) */}
@@ -469,23 +498,109 @@ export const Header: React.FC<HeaderProps> = ({
                 </span>
                 <button
                   type="button"
-                  onClick={() => {
-                    const next = devClickCount + 1;
-                    setDevClickCount(next);
-                    if (next >= 5) {
-                      setShowDevPinPrompt((prev) => !prev);
-                      setDevClickCount(0);
-                    }
-                  }}
-                  className="text-sm font-bold text-white font-mono hover:text-cyan-300 transition-colors cursor-pointer select-none"
-                  title="Developer"
+                  onClick={() => setShowDevPinPrompt(true)}
+                  className="text-sm font-bold text-cyan-400 font-mono hover:text-cyan-300 transition-colors cursor-pointer select-none underline decoration-cyan-500/40"
+                  title="Click to enter Developer PIN (2450)"
                 >
-                  M-Tech
+                  M-Tech {isDevUnlocked ? '✓' : ''}
                 </button>
               </div>
 
-              {/* Developer PIN Prompt - Only triggered after 5 taps on Developer name */}
-              {showDevPinPrompt && (
+              {/* Direct access button to Developer Simulation Tools when unlocked */}
+              {isDevUnlocked && (
+                <div className="flex flex-col gap-2 p-3 bg-amber-950/40 border border-amber-500/50 rounded-xl">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-300 font-mono flex items-center gap-1.5">
+                      <ShieldAlert className="w-4 h-4 text-amber-400" />
+                      <span>شبیه‌ساز خرید مایکت و لایسنس OTG:</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAboutModal(false);
+                        onTabChange('keygen');
+                      }}
+                      className="text-[10px] px-2 py-0.5 rounded bg-amber-500 text-slate-950 font-bold font-mono hover:bg-amber-400"
+                    >
+                      کنسول کامل ↗
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-1.5 text-[11px] font-mono">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        deactivateLicense();
+                        simulateAppAgeDays(10);
+                        showToastMessage('حالت ۱: روز ۱۰ (فعال و متصل عادی)');
+                        setOtgLicense(getOtgLicenseStatus());
+                      }}
+                      className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-700 text-emerald-300 text-left flex items-center gap-1.5"
+                    >
+                      <Play className="w-3 h-3 text-emerald-400 shrink-0" />
+                      <span className="truncate">۱. روز ۱۰ (عادی)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        deactivateLicense();
+                        simulateAppAgeDays(155);
+                        showToastMessage('حالت ۲: روز ۱۵۵ (نمایش هشدار ۵ ماهه)');
+                        setOtgLicense(getOtgLicenseStatus());
+                      }}
+                      className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-700 text-amber-300 text-left flex items-center gap-1.5"
+                    >
+                      <Clock className="w-3 h-3 text-amber-400 shrink-0" />
+                      <span className="truncate">۲. روز ۱۵۵ (هشدار)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        deactivateLicense();
+                        simulateAppAgeDays(185);
+                        showToastMessage('حالت ۳: روز ۱۸۵ (انقضای ۶ ماهه و قفل OTG)');
+                        setOtgLicense(getOtgLicenseStatus());
+                      }}
+                      className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-700 text-rose-300 text-left flex items-center gap-1.5"
+                    >
+                      <Lock className="w-3 h-3 text-rose-400 shrink-0" />
+                      <span className="truncate">۳. روز ۱۸۵ (قفل و خرید)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        activateViaMyket();
+                        showToastMessage('خرید مایکت شبیه‌سازی شد: لایسنس دائم');
+                        setOtgLicense(getOtgLicenseStatus());
+                      }}
+                      className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-700 text-cyan-300 text-left flex items-center gap-1.5"
+                    >
+                      <ShoppingCart className="w-3 h-3 text-cyan-400 shrink-0" />
+                      <span className="truncate">۴. خرید مایکت</span>
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      deactivateLicense();
+                      simulateAppAgeDays(0);
+                      showToastMessage('ریست به روز ۰');
+                      setOtgLicense(getOtgLicenseStatus());
+                    }}
+                    className="w-full py-1 text-[10px] text-slate-400 hover:text-white bg-slate-900 border border-slate-800 rounded flex items-center justify-center gap-1"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>ریست به روز اول (Day 0)</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Developer PIN Prompt */}
+              {showDevPinPrompt && !isDevUnlocked && (
                 <form
                   onSubmit={handleDevPinSubmit}
                   className="p-3 bg-slate-900 border border-slate-700 rounded-xl flex flex-col gap-2 animate-fadeIn"
