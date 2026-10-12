@@ -80,6 +80,19 @@ export interface OtgLicenseStatus {
   deviceId: string;
 }
 
+declare global {
+  interface Window {
+    MarinerNativeStorage?: {
+      getHardwareAndroidId: () => string;
+      getPersistentInstallRecord: (deviceId: string) => string;
+      savePersistentInstallRecord: (deviceId: string, firstInstallTs: number) => boolean;
+      resetPersistentInstallRecord: (passcode: string, newTimestamp: number) => boolean;
+      savePersistentPurchase: (deviceId: string, purchaseKey: string) => boolean;
+      getPersistentPurchase: (deviceId: string) => string;
+    };
+  }
+}
+
 // Memory cache of synchronized license status
 let cachedLicenseStatus: LicenseStatus | null = null;
 let isSyncInProgress = false;
@@ -268,7 +281,26 @@ export function getOrCreateDeviceId(): string {
       return devId;
     }
 
-    const hwHash = generateHardwareFingerprint();
+    let hwHash = 0;
+    // Check immutable hardware Android ID (survives Clear Data and reinstalls)
+    try {
+      if (typeof window !== 'undefined' && window.MarinerNativeStorage?.getHardwareAndroidId) {
+        const androidId = window.MarinerNativeStorage.getHardwareAndroidId();
+        if (androidId && androidId.length >= 4) {
+          let h = 0x811c9dc5;
+          for (let i = 0; i < androidId.length; i++) {
+            h ^= androidId.charCodeAt(i);
+            h = Math.imul(h, 0x01000193);
+          }
+          hwHash = h >>> 0;
+        }
+      }
+    } catch {}
+
+    if (!hwHash) {
+      hwHash = generateHardwareFingerprint();
+    }
+
     const part1 = ((hwHash >>> 16) & 0xffff).toString(16).toUpperCase().padStart(4, '0');
     const part2 = (hwHash & 0xffff).toString(16).toUpperCase().padStart(4, '0');
     
@@ -284,6 +316,7 @@ export function getOrCreateDeviceId(): string {
 
 /**
  * Gets or initializes the First Installation Timestamp across multiple persistent storage tiers
+ * including Android Shared Public Storage (survives Clear Data and Reinstall).
  */
 export function getFirstInstallTimestamp(): number {
   try {
@@ -303,6 +336,20 @@ export function getFirstInstallTimestamp(): number {
       if (!isNaN(ts) && ts > 1700000000000) candidates.push(ts);
     }
 
+    // 3. Check Native Persistent Storage (Documents / Download shared files - survives Clear Data and Reinstalls)
+    if (typeof window !== 'undefined' && window.MarinerNativeStorage?.getPersistentInstallRecord) {
+      try {
+        const devId = getOrCreateDeviceId();
+        const recordRaw = window.MarinerNativeStorage.getPersistentInstallRecord(devId);
+        if (recordRaw) {
+          const rec = JSON.parse(recordRaw);
+          if (rec && typeof rec.firstInstallTs === 'number' && rec.firstInstallTs > 1700000000000) {
+            candidates.push(rec.firstInstallTs);
+          }
+        }
+      } catch {}
+    }
+
     // If any persistent storage retained an install date, use the earliest recorded one
     if (candidates.length > 0) {
       const earliest = Math.min(...candidates);
@@ -310,6 +357,11 @@ export function getFirstInstallTimestamp(): number {
       localStorage.setItem(FIRST_INSTALL_KEY, earliest.toString());
       setCookie(COOKIE_TRIAL_KEY, earliest.toString());
       saveToIndexedDB(FIRST_INSTALL_KEY, earliest.toString());
+      if (typeof window !== 'undefined' && window.MarinerNativeStorage?.savePersistentInstallRecord) {
+        try {
+          window.MarinerNativeStorage.savePersistentInstallRecord(getOrCreateDeviceId(), earliest);
+        } catch {}
+      }
       return earliest;
     }
     
@@ -318,6 +370,11 @@ export function getFirstInstallTimestamp(): number {
     localStorage.setItem(FIRST_INSTALL_KEY, now.toString());
     setCookie(COOKIE_TRIAL_KEY, now.toString());
     saveToIndexedDB(FIRST_INSTALL_KEY, now.toString());
+    if (typeof window !== 'undefined' && window.MarinerNativeStorage?.savePersistentInstallRecord) {
+      try {
+        window.MarinerNativeStorage.savePersistentInstallRecord(getOrCreateDeviceId(), now);
+      } catch {}
+    }
     return now;
   } catch {
     return Date.now();
@@ -455,8 +512,24 @@ export function getOtgLicenseStatus(): OtgLicenseStatus {
                    getCookie(OTG_LICENSE_KEY) ||
                    getCookie(LICENSE_STORAGE_KEY);
   
+  let isNativePurchased = false;
+  try {
+    if (typeof window !== 'undefined' && window.MarinerNativeStorage?.getPersistentPurchase) {
+      const pKey = window.MarinerNativeStorage.getPersistentPurchase(deviceId);
+      if (pKey && pKey.length > 0) {
+        isNativePurchased = true;
+        // Restore local state if cleared
+        try {
+          localStorage.setItem('mariner_myket_purchased', 'true');
+          localStorage.setItem(OTG_LICENSE_KEY, pKey);
+          localStorage.setItem('mariner_activated', 'true');
+        } catch {}
+      }
+    }
+  } catch {}
+
   const isDev = isDeveloperModeUnlocked();
-  const isMyketPurchased = localStorage.getItem('mariner_myket_purchased') === 'true' || getCookie('mariner_myket_purchased') === 'true';
+  const isMyketPurchased = isNativePurchased || localStorage.getItem('mariner_myket_purchased') === 'true' || getCookie('mariner_myket_purchased') === 'true';
   const isExplicitlyActivated = localStorage.getItem('mariner_activated') === 'true' || getCookie('mariner_activated') === 'true';
 
   const isKeyValid = !!(savedKey && (
@@ -554,6 +627,9 @@ export function activateOtgLicense(key: string): boolean {
         localStorage.setItem('mariner_myket_purchased', 'true');
         setCookie('mariner_myket_purchased', 'true');
       }
+      if (typeof window !== 'undefined' && window.MarinerNativeStorage?.savePersistentPurchase) {
+        window.MarinerNativeStorage.savePersistentPurchase(deviceId, cleanKey);
+      }
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('mariner_license_activated'));
       }
@@ -568,6 +644,7 @@ export function activateOtgLicense(key: string): boolean {
  */
 export function activateViaMyket(): void {
   try {
+    const deviceId = getOrCreateDeviceId();
     localStorage.setItem('mariner_myket_purchased', 'true');
     localStorage.setItem(OTG_LICENSE_KEY, 'MYKET-PURCHASED');
     localStorage.setItem('mariner_activated', 'true');
@@ -575,6 +652,9 @@ export function activateViaMyket(): void {
     setCookie(OTG_LICENSE_KEY, 'MYKET-PURCHASED');
     setCookie('mariner_activated', 'true');
     saveToIndexedDB(OTG_LICENSE_KEY, 'MYKET-PURCHASED');
+    if (typeof window !== 'undefined' && window.MarinerNativeStorage?.savePersistentPurchase) {
+      window.MarinerNativeStorage.savePersistentPurchase(deviceId, 'MYKET-PURCHASED');
+    }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('mariner_license_activated'));
     }
@@ -765,4 +845,63 @@ export function simulateAppAgeDays(days: number): void {
       window.dispatchEvent(new CustomEvent('mariner_license_activated'));
     }
   } catch {}
+}
+
+/**
+ * Developer Reset: Resets the trial to Day 0 across all persistent tiers (local, native shared files, and server).
+ * Strictly requires the Developer Passcode "2450".
+ */
+export async function resetPersistentTrialToDay0(passcode: string): Promise<boolean> {
+  const cleanPasscode = passcode.trim();
+  if (cleanPasscode !== DEVELOPER_PASSCODE && cleanPasscode !== '2450') {
+    return false;
+  }
+
+  const now = Date.now();
+  const deviceId = getOrCreateDeviceId();
+
+  try {
+    // 1. Reset Native Shared Storage files on Android
+    if (typeof window !== 'undefined' && window.MarinerNativeStorage?.resetPersistentInstallRecord) {
+      window.MarinerNativeStorage.resetPersistentInstallRecord('2450', now);
+      window.MarinerNativeStorage.savePersistentInstallRecord(deviceId, now);
+    }
+  } catch {}
+
+  try {
+    // 2. Reset Server Registry
+    await fetch('/api/license/trial/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deviceId, passcode: '2450' })
+    });
+  } catch {}
+
+  try {
+    // 3. Reset Local Storage, Cookies, IndexedDB
+    localStorage.setItem(FIRST_INSTALL_KEY, now.toString());
+    localStorage.removeItem(LAST_SEEN_KEY);
+    localStorage.removeItem(OTG_WARNING_DISMISSED_KEY);
+    localStorage.removeItem(LICENSE_STORAGE_KEY);
+    localStorage.removeItem(OTG_LICENSE_KEY);
+    localStorage.removeItem('mariner_activated');
+    localStorage.removeItem('mariner_myket_purchased');
+    
+    setCookie(COOKIE_TRIAL_KEY, now.toString());
+    setCookie(LICENSE_STORAGE_KEY, '');
+    setCookie(OTG_LICENSE_KEY, '');
+    setCookie('mariner_activated', '');
+    setCookie('mariner_myket_purchased', '');
+
+    saveToIndexedDB(FIRST_INSTALL_KEY, now.toString());
+
+    cachedLicenseStatus = null;
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('mariner_license_activated'));
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }

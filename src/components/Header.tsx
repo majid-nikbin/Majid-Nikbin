@@ -42,7 +42,8 @@ import {
   MYKET_WEB_URL,
   simulateAppAgeDays,
   deactivateLicense,
-  activateViaMyket
+  activateViaMyket,
+  resetPersistentTrialToDay0
 } from '../services/licenseService';
 import { Browser } from '@capacitor/browser';
 import { App as CapApp } from '@capacitor/app';
@@ -621,10 +622,9 @@ export const Header: React.FC<HeaderProps> = ({
                   <div className="flex gap-1.5 pt-1">
                     <button
                       type="button"
-                      onClick={() => {
-                        deactivateLicense();
-                        simulateAppAgeDays(0);
-                        showToastMessage('Reset to Day 0');
+                      onClick={async () => {
+                        await resetPersistentTrialToDay0('2450');
+                        showToastMessage('Trial Reset to Day 0 (Persistent & Server Synced)');
                         setOtgLicense(getOtgLicenseStatus());
                       }}
                       className="flex-1 py-1 text-[10px] text-slate-300 hover:text-white bg-slate-950 border border-slate-800 rounded flex items-center justify-center gap-1 cursor-pointer"

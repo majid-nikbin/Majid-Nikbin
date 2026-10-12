@@ -6,7 +6,7 @@ import { createServer as createViteServer } from 'vite';
 
 const MASTER_SALT = 'MARINER_PRO_NAV_SALT_2026_SECRET_KEY';
 const DEVELOPER_PASSCODE = '2450';
-const TRIAL_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+const TRIAL_DURATION_MS = 180 * 24 * 60 * 60 * 1000;
 
 interface DeviceTrialRecord {
   deviceId: string;
@@ -193,11 +193,50 @@ async function startServer() {
         isTrialExpired,
         isActivated: record.isActivated || false,
         activatedKey: record.activatedKey,
-        trialTotalDays: 30
+        trialTotalDays: 180
       });
     } catch (err: any) {
       console.error('Trial sync error:', err);
       res.status(500).json({ error: 'Failed to sync trial' });
+    }
+  });
+
+  // Reset Trial Authoritative Endpoint - Only authorized with Developer Passcode 2450
+  app.post('/api/license/trial/reset', (req, res) => {
+    try {
+      const { deviceId, passcode } = req.body || {};
+      if (!deviceId || !passcode) {
+        return res.status(400).json({ error: 'Missing deviceId or passcode' });
+      }
+
+      const cleanPasscode = String(passcode).trim();
+      if (cleanPasscode !== DEVELOPER_PASSCODE) {
+        return res.status(403).json({ success: false, error: 'Unauthorized: Invalid developer passcode' });
+      }
+
+      const cleanDevId = deviceId.trim().toUpperCase();
+      const registry = loadRegistry();
+      const now = Date.now();
+
+      registry[cleanDevId] = {
+        deviceId: cleanDevId,
+        firstInstallTs: now,
+        lastSeenTs: now,
+        isActivated: false,
+        ip: req.ip
+      };
+      saveRegistry(registry);
+
+      res.json({
+        success: true,
+        message: 'Device trial reset to Day 0 successfully on authoritative registry.',
+        deviceId: cleanDevId,
+        firstInstallTs: now,
+        trialTotalDays: 180
+      });
+    } catch (err: any) {
+      console.error('Trial reset error:', err);
+      res.status(500).json({ error: 'Failed to reset trial' });
     }
   });
 
