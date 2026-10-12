@@ -86,6 +86,7 @@ export const Header: React.FC<HeaderProps> = ({
   const setShowAboutModal = externalSetShowAboutModal || setLocalShowAboutModal;
 
   const [showDevPinPrompt, setShowDevPinPrompt] = useState<boolean>(false);
+  const [showDevTools, setShowDevTools] = useState<boolean>(false);
   const [devClickCount, setDevClickCount] = useState<number>(0);
   const [devPinInput, setDevPinInput] = useState<string>('');
   const [devPinError, setDevPinError] = useState<string | null>(null);
@@ -205,10 +206,11 @@ export const Header: React.FC<HeaderProps> = ({
       setDeveloperMode(true);
       activateOtgLicense(DEVELOPER_PASSCODE);
       setIsDevUnlocked(true);
+      setShowDevTools(true);
       setShowDevPinPrompt(false);
       setDevPinInput('');
       setDevPinError(null);
-      showToastMessage('✓ Developer Mode Unlocked');
+      showToastMessage('Developer Sandbox Tools Unlocked');
     } else {
       setDevPinError('Invalid passcode');
     }
@@ -481,8 +483,9 @@ export const Header: React.FC<HeaderProps> = ({
                     const next = devClickCount + 1;
                     setDevClickCount(next);
                     if (next >= 5) {
-                      setShowDevPinPrompt((prev) => !prev);
+                      setShowDevPinPrompt(true);
                       setDevClickCount(0);
+                      setDevPinError(null);
                     }
                   }}
                   className="text-sm font-bold text-white font-mono hover:text-cyan-300 transition-colors cursor-pointer select-none"
@@ -492,17 +495,69 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
               </div>
 
-              {/* Direct access button to Developer Simulation Tools when unlocked */}
-              {isDevUnlocked && (
-                <div className="flex flex-col gap-2 p-3 bg-slate-900 border border-slate-700 rounded-xl">
+              {/* Developer PIN Prompt - Only appears after 5 taps on M-Tech */}
+              {showDevPinPrompt && (
+                <form
+                  onSubmit={handleDevPinSubmit}
+                  className="p-3 bg-slate-900 border border-slate-700 rounded-xl flex flex-col gap-2 animate-fadeIn"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-mono font-bold text-slate-300 flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Developer Password:</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowDevPinPrompt(false);
+                        setDevPinError(null);
+                      }}
+                      className="text-[10px] text-slate-400 hover:text-white px-2 py-0.5 rounded bg-slate-800"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      value={devPinInput}
+                      onChange={(e) => {
+                        setDevPinInput(e.target.value);
+                        setDevPinError(null);
+                      }}
+                      placeholder="Enter Passcode"
+                      autoFocus
+                      className="flex-1 bg-slate-950 border border-slate-700 focus:border-cyan-500 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white outline-none"
+                    />
+                    <button
+                      type="submit"
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-400 text-xs font-bold font-mono rounded-lg border border-slate-700 transition-colors cursor-pointer"
+                    >
+                      Unlock
+                    </button>
+                  </div>
+                  {devPinError && (
+                    <span className="text-[11px] text-rose-400 font-mono">{devPinError}</span>
+                  )}
+                </form>
+              )}
+
+              {/* Sandbox License & Myket Simulator - Accessible only when active via 5 clicks & Passcode */}
+              {showDevTools && (
+                <div className="flex flex-col gap-2 p-3 bg-slate-900 border border-amber-500/50 rounded-xl">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-amber-300 font-mono flex items-center gap-1.5">
                       <ShieldAlert className="w-4 h-4 text-amber-400" />
                       <span>Sandbox License & Myket Simulator</span>
                     </span>
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/50 font-mono font-bold">
-                      ACTIVE
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowDevTools(false)}
+                      className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 hover:text-white"
+                      title="Hide Sandbox"
+                    >
+                      Hide
+                    </button>
                   </div>
 
                   <div className="grid grid-cols-2 gap-1.5 text-[11px] font-mono">
@@ -514,7 +569,7 @@ export const Header: React.FC<HeaderProps> = ({
                         showToastMessage('Simulated: Day 10 (Normal Active)');
                         setOtgLicense(getOtgLicenseStatus());
                       }}
-                      className="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-700 text-emerald-300 text-left flex items-center gap-1.5"
+                      className="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-700 text-emerald-300 text-left flex items-center gap-1.5 cursor-pointer"
                     >
                       <Play className="w-3 h-3 text-emerald-400 shrink-0" />
                       <span className="truncate">1. Day 10 (Normal)</span>
@@ -528,7 +583,7 @@ export const Header: React.FC<HeaderProps> = ({
                         showToastMessage('Simulated: Day 155 (5-Month Grace Warning)');
                         setOtgLicense(getOtgLicenseStatus());
                       }}
-                      className="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-700 text-amber-300 text-left flex items-center gap-1.5"
+                      className="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-700 text-amber-300 text-left flex items-center gap-1.5 cursor-pointer"
                     >
                       <Clock className="w-3 h-3 text-amber-400 shrink-0" />
                       <span className="truncate">2. Day 155 (Warning)</span>
@@ -542,7 +597,7 @@ export const Header: React.FC<HeaderProps> = ({
                         showToastMessage('Simulated: Day 185 (6-Month Trial Expired)');
                         setOtgLicense(getOtgLicenseStatus());
                       }}
-                      className="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-700 text-rose-300 text-left flex items-center gap-1.5"
+                      className="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-700 text-rose-300 text-left flex items-center gap-1.5 cursor-pointer"
                     >
                       <Lock className="w-3 h-3 text-rose-400 shrink-0" />
                       <span className="truncate">3. Day 185 (Expired)</span>
@@ -555,69 +610,46 @@ export const Header: React.FC<HeaderProps> = ({
                         showToastMessage('Simulated: Store Purchase Active');
                         setOtgLicense(getOtgLicenseStatus());
                       }}
-                      className="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-700 text-cyan-300 text-left flex items-center gap-1.5"
+                      className="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-700 text-cyan-300 text-left flex items-center gap-1.5 cursor-pointer"
+                      title="Simulates successful Myket in-app purchase in developer sandbox"
                     >
                       <ShoppingCart className="w-3 h-3 text-cyan-400 shrink-0" />
                       <span className="truncate">4. Store Purchase</span>
                     </button>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      deactivateLicense();
-                      simulateAppAgeDays(0);
-                      showToastMessage('Reset to Day 0');
-                      setOtgLicense(getOtgLicenseStatus());
-                    }}
-                    className="w-full py-1 text-[10px] text-slate-400 hover:text-white bg-slate-950 border border-slate-800 rounded flex items-center justify-center gap-1"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    <span>Reset Settings to Day 0</span>
-                  </button>
-                </div>
-              )}
-
-              {/* Developer PIN Prompt */}
-              {showDevPinPrompt && !isDevUnlocked && (
-                <form
-                  onSubmit={handleDevPinSubmit}
-                  className="p-3 bg-slate-900 border border-slate-700 rounded-xl flex flex-col gap-2 animate-fadeIn"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono font-bold text-slate-300 flex items-center gap-1.5">
-                      <Lock className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>Developer PIN:</span>
-                    </span>
-                    {isDevUnlocked && (
-                      <span className="text-[10px] text-emerald-400 font-mono font-bold">
-                        UNLOCKED
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <input
-                      type="password"
-                      value={devPinInput}
-                      onChange={(e) => {
-                        setDevPinInput(e.target.value);
-                        setDevPinError(null);
-                      }}
-                      placeholder="••••"
-                      autoFocus
-                      className="flex-1 bg-slate-950 border border-slate-700 focus:border-cyan-500 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white outline-none"
-                    />
+                  <div className="flex gap-1.5 pt-1">
                     <button
-                      type="submit"
-                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-400 text-xs font-bold font-mono rounded-lg border border-slate-700 transition-colors cursor-pointer"
+                      type="button"
+                      onClick={() => {
+                        deactivateLicense();
+                        simulateAppAgeDays(0);
+                        showToastMessage('Reset to Day 0');
+                        setOtgLicense(getOtgLicenseStatus());
+                      }}
+                      className="flex-1 py-1 text-[10px] text-slate-300 hover:text-white bg-slate-950 border border-slate-800 rounded flex items-center justify-center gap-1 cursor-pointer"
                     >
-                      Submit
+                      <RotateCcw className="w-3 h-3 text-slate-400" />
+                      <span>Reset Day 0</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeveloperMode(false);
+                        deactivateLicense();
+                        setIsDevUnlocked(false);
+                        setShowDevTools(false);
+                        showToastMessage('Developer Mode Locked');
+                        setOtgLicense(getOtgLicenseStatus());
+                      }}
+                      className="flex-1 py-1 text-[10px] text-rose-400 hover:text-rose-200 bg-slate-950 border border-rose-900/50 rounded flex items-center justify-center gap-1 cursor-pointer"
+                    >
+                      <Lock className="w-3 h-3 text-rose-400" />
+                      <span>Lock & Exit</span>
                     </button>
                   </div>
-                  {devPinError && (
-                    <span className="text-[11px] text-rose-400 font-mono">{devPinError}</span>
-                  )}
-                </form>
+                </div>
               )}
 
               <div className="flex items-center justify-between border-t border-slate-800/80 pt-2.5">

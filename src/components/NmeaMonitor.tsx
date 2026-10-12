@@ -59,9 +59,6 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
   const [showChromeModal, setShowChromeModal] = useState<boolean>(false);
   const [showMyketModal, setShowMyketModal] = useState<boolean>(false);
   const [otgLicense, setOtgLicense] = useState(() => getOtgLicenseStatus());
-  const [otgKeyInput, setOtgKeyInput] = useState<string>('');
-  const [otgKeyError, setOtgKeyError] = useState<string | null>(null);
-  const [otgKeySuccess, setOtgKeySuccess] = useState<boolean>(false);
 
   const terminalEndRef = useRef<HTMLDivElement>(null);
 
@@ -121,28 +118,6 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
       }, 600);
     } catch {
       window.open(MYKET_WEB_URL, '_blank');
-    }
-  };
-
-  const handleActivateOtgKey = (e: React.FormEvent) => {
-    e.preventDefault();
-    setOtgKeyError(null);
-    const key = otgKeyInput.trim();
-    if (!key) {
-      setOtgKeyError('Please enter an activation key or developer PIN');
-      return;
-    }
-    const success = activateOtgLicense(key);
-    if (success) {
-      setOtgKeySuccess(true);
-      setOtgLicense(getOtgLicenseStatus());
-      setTimeout(() => {
-        setShowMyketModal(false);
-        setOtgKeySuccess(false);
-        setOtgKeyInput('');
-      }, 1500);
-    } else {
-      setOtgKeyError('Invalid key or PIN. Please purchase via Myket or contact support.');
     }
   };
 
@@ -523,47 +498,12 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
               </button>
             </div>
 
-            {/* Offline Key Entry Form (for manual keys or developer bypass) */}
-            <form onSubmit={handleActivateOtgKey} className="pt-3 border-t border-slate-800 flex flex-col gap-2">
-              <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
-                <KeyRound className="w-3 h-3 text-cyan-400" />
-                <span>Have an activation key or PIN?</span>
-              </span>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={otgKeyInput}
-                  onChange={(e) => {
-                    setOtgKeyInput(e.target.value);
-                    setOtgKeyError(null);
-                  }}
-                  placeholder="Enter activation key or passcode"
-                  className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono outline-none focus:border-cyan-400"
-                />
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 font-bold text-xs rounded-lg border border-slate-700 transition-colors shrink-0 cursor-pointer"
-                >
-                  Activate
-                </button>
-              </div>
-              {otgKeyError && (
-                <span className="text-[11px] text-rose-400 font-mono">{otgKeyError}</span>
-              )}
-              {otgKeySuccess && (
-                <span className="text-[11px] text-emerald-400 font-mono font-bold flex items-center gap-1">
-                  <Check className="w-3 h-3" />
-                  OTG connection successfully activated!
-                </span>
-              )}
-            </form>
-
             {/* Footer */}
-            <div className="flex justify-end pt-1">
+            <div className="flex justify-end pt-2 border-t border-slate-800">
               <button
                 type="button"
                 onClick={() => setShowMyketModal(false)}
-                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-755 text-slate-400 text-xs rounded-lg"
+                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg transition-colors cursor-pointer"
               >
                 Close
               </button>
