@@ -124,16 +124,6 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
     }
   };
 
-  const handleConfirmMyketPurchase = () => {
-    activateViaMyket();
-    setOtgKeySuccess(true);
-    setOtgLicense(getOtgLicenseStatus());
-    setTimeout(() => {
-      setShowMyketModal(false);
-      setOtgKeySuccess(false);
-    }, 1500);
-  };
-
   const handleActivateOtgKey = (e: React.FormEvent) => {
     e.preventDefault();
     setOtgKeyError(null);
@@ -530,15 +520,6 @@ export const NmeaMonitor: React.FC<NmeaMonitorProps> = ({
                 <ShoppingCart className="w-4 h-4" />
                 <span>Purchase License via Myket</span>
                 <ExternalLink className="w-3.5 h-3.5 opacity-80" />
-              </button>
-
-              <button
-                type="button"
-                onClick={handleConfirmMyketPurchase}
-                className="w-full py-2 px-3 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/60 text-emerald-300 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-              >
-                <Check className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Confirm Purchase (Activate Lifetime Access)</span>
               </button>
             </div>
 
