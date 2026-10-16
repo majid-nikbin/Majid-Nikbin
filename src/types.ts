@@ -41,7 +41,7 @@ export interface NmeaConfig {
   baudRate: number;
   intervalMs: number; // transmission interval (e.g. 1000ms = 1Hz, 200ms = 5Hz)
   talkerIdGps: 'GP' | 'GN' | 'GA' | 'GL';
-  talkerIdHeading: 'HC' | 'HE' | 'HD' | 'II' | 'IN';
+  talkerIdHeading: 'HC' | 'HE' | 'HN' | 'TI' | 'ST22' | 'HD' | 'II' | 'IN';
   magVariation: number; // East is positive, West is negative
   headingCorrection?: number; // Manual offset added to magnetic heading (e.g. +3.5° or -2.0°)
   activeSentences: Record<string, boolean>;

@@ -15,10 +15,10 @@ export const AVAILABLE_SENTENCES: NmeaSentenceConfig[] = [
   },
   {
     id: 'HDT',
-    name: 'Heading True ($HCHDT / $HEHDT)',
+    name: 'Heading True ($HEHDT / $HCHDT)',
     category: 'heading',
-    description: 'Standard True Heading sentence (degrees True). Supported by marine radars and gyro repeaters.',
-    sample: '$HCHDT,047.3,T*2B',
+    description: 'Standard True Heading sentence (degrees True). Anschütz Standard 22 (ST22) Gyro & Radar repeater format.',
+    sample: '$HEHDT,316.4,T*2B',
     enabled: true,
   },
   {
@@ -183,25 +183,31 @@ export function generateNmeaSentences(
 
   const talkerGps = config.talkerIdGps || 'GP';
   const talkerHdg = config.talkerIdHeading || 'HC';
+  const isAnschutzSt22 = config.talkerIdHeading === 'ST22';
 
-  // 1. HDG - Heading, Dev & Var
-  if (config.activeSentences['HDG']) {
+  // For Anschütz Standard 22 (ST22), IEC 61162-1 / NMEA 0183 heading talker is 'HE' (North-seeking Gyro)
+  const effectiveHdgTalker = isAnschutzSt22 ? 'HE' : talkerHdg;
+
+  // 1. HDG - Heading, Dev & Var (only if not dedicated Anschütz ST22 gyro mode)
+  if (config.activeSentences['HDG'] && !isAnschutzSt22) {
     // $HCHDG,heading,deviation,dev_dir,variation,var_dir
-    const payload = `${talkerHdg}HDG,${cogMag},,,${magVarAbs},${magVarHemi}`;
+    const payload = `${effectiveHdgTalker}HDG,${cogMag},,,${magVarAbs},${magVarHemi}`;
     sentences.push(buildNmeaSentence(payload));
   }
 
-  // 2. HDT - Heading True
-  if (config.activeSentences['HDT']) {
-    // $HCHDT,heading,T
-    const payload = `${talkerHdg}HDT,${compass.trueHeading.toFixed(1)},T`;
+  // 2. HDT - Heading True (Anschütz Standard 22 format: $HEHDT,xxx.x,T*hh\r\n)
+  if (isAnschutzSt22 || config.activeSentences['HDT']) {
+    // True heading from compass with 1 decimal digit resolution (e.g. 316.4)
+    const hdgDeg = ((compass.trueHeading % 360) + 360) % 360;
+    const hdgStr = hdgDeg.toFixed(1);
+    const payload = `${effectiveHdgTalker}HDT,${hdgStr},T`;
     sentences.push(buildNmeaSentence(payload));
   }
 
-  // 3. HDM - Heading Magnetic
-  if (config.activeSentences['HDM']) {
+  // 3. HDM - Heading Magnetic (only if not dedicated Anschütz ST22 gyro mode)
+  if (config.activeSentences['HDM'] && !isAnschutzSt22) {
     // $HCHDM,heading,M
-    const payload = `${talkerHdg}HDM,${cogMag},M`;
+    const payload = `${effectiveHdgTalker}HDM,${cogMag},M`;
     sentences.push(buildNmeaSentence(payload));
   }
 

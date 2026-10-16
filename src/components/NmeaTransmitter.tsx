@@ -696,18 +696,44 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
             <label className="text-[11px] text-slate-400 font-medium">Heading Talker</label>
             <select
               value={config.talkerIdHeading}
-              onChange={(e) =>
-                onConfigChange({ ...config, talkerIdHeading: e.target.value as any })
-              }
+              onChange={(e) => {
+                const val = e.target.value as any;
+                if (val === 'ST22') {
+                  onConfigChange({
+                    ...config,
+                    talkerIdHeading: 'ST22',
+                    activeSentences: {
+                      ...config.activeSentences,
+                      HDT: true,
+                    },
+                  });
+                } else {
+                  onConfigChange({ ...config, talkerIdHeading: val });
+                }
+              }}
               className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold text-white outline-none"
             >
               <option value="HC">HC (Magnetic Compass)</option>
               <option value="HE">HE (North Gyro)</option>
               <option value="HN">HN (Non-North Gyro)</option>
               <option value="TI">TI (Turn Indicator)</option>
+              <option value="ST22">anschutz st22 HDT</option>
             </select>
           </div>
         </div>
+
+        {config.talkerIdHeading === 'ST22' && (
+          <div className="mt-2.5 px-3 py-2 bg-cyan-950/40 border border-cyan-800/70 rounded-xl flex items-center justify-between text-xs text-cyan-200">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+              <span className="font-semibold text-white">Anschütz Standard 22 Gyro HDT:</span>
+              <span className="font-mono text-cyan-300 font-bold">$HEHDT,{compass.trueHeading.toFixed(1)},T*hh</span>
+            </div>
+            <span className="text-[10px] font-mono bg-cyan-900/60 text-cyan-300 px-2 py-0.5 rounded border border-cyan-700/60">
+              IEC 61162-1
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Sentence Selection Matrix - Compact, clean buttons without bulky sub-descriptions */}
