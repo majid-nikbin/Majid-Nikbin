@@ -717,7 +717,7 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
               <option value="HE">HE (North Gyro)</option>
               <option value="HN">HN (Non-North Gyro)</option>
               <option value="TI">TI (Turn Indicator)</option>
-              <option value="ST22">anschutz st22 HDT</option>
+              <option value="ST22">Anschutz STD22 HDT</option>
             </select>
           </div>
         </div>

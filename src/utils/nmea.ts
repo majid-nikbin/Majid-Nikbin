@@ -17,7 +17,7 @@ export const AVAILABLE_SENTENCES: NmeaSentenceConfig[] = [
     id: 'HDT',
     name: 'Heading True ($HEHDT / $HCHDT)',
     category: 'heading',
-    description: 'Standard True Heading sentence (degrees True). Anschütz Standard 22 (ST22) Gyro & Radar repeater format.',
+    description: 'Standard True Heading sentence (degrees True). Anschutz STD22 Gyro & Radar repeater format.',
     sample: '$HEHDT,316.4,T*2B',
     enabled: true,
   },
