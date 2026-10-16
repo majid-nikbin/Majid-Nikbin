@@ -696,21 +696,9 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
             <label className="text-[11px] text-slate-400 font-medium">Heading Talker</label>
             <select
               value={config.talkerIdHeading}
-              onChange={(e) => {
-                const val = e.target.value as any;
-                if (val === 'ST22') {
-                  onConfigChange({
-                    ...config,
-                    talkerIdHeading: 'ST22',
-                    activeSentences: {
-                      ...config.activeSentences,
-                      HDT: true,
-                    },
-                  });
-                } else {
-                  onConfigChange({ ...config, talkerIdHeading: val });
-                }
-              }}
+              onChange={(e) =>
+                onConfigChange({ ...config, talkerIdHeading: e.target.value as any })
+              }
               className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold text-white outline-none"
             >
               <option value="HC">HC (Magnetic Compass)</option>
@@ -748,7 +736,7 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
           {AVAILABLE_SENTENCES.map((item) => {
             const isActive = !config.activeSentences || !config.activeSentences[item.id] ? false : true;
             return (
@@ -771,17 +759,19 @@ export const NmeaTransmitter: React.FC<NmeaTransmitterProps> = ({
                   >
                     {isActive && <Check className="w-3 h-3 stroke-[3]" />}
                   </div>
-                  <span className="font-mono font-bold text-xs text-white">{item.id}</span>
+                  <span className="font-mono font-bold text-xs text-white">
+                    {item.label || item.id}
+                  </span>
                 </div>
 
                 <span
                   className={`text-[8px] px-1.5 py-0.5 rounded font-bold uppercase ${
-                    item.category === 'heading'
+                    item.category === 'heading' || item.id === 'ROT'
                       ? 'bg-blue-950/80 text-blue-300 border border-blue-800/80'
                       : 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/80'
                   }`}
                 >
-                  {item.category === 'heading' ? 'HDG' : 'GPS'}
+                  {item.badge || (item.category === 'heading' ? 'HDG' : 'GPS')}
                 </span>
               </div>
             );

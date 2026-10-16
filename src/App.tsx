@@ -148,6 +148,8 @@ export default function App() {
       HDT: true,
       HDM: false,
       THS: false,
+      HETHS: false,
+      ROT: false,
       VHW: false,
       RMC: true,
       GGA: true,

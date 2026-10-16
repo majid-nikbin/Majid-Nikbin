@@ -31,10 +31,32 @@ export const AVAILABLE_SENTENCES: NmeaSentenceConfig[] = [
   },
   {
     id: 'THS',
+    label: 'THS',
+    badge: 'INTHS',
     name: 'True Heading & Status ($INTHS)',
     category: 'heading',
-    description: 'High integrity True Heading with autonomous fix/valid status code.',
+    description: 'Integrated Nav True Heading with autonomous fix/valid status code.',
     sample: '$INTHS,047.3,A*1E',
+    enabled: false,
+  },
+  {
+    id: 'HETHS',
+    label: 'THS',
+    badge: 'HETHS',
+    name: 'Gyro True Heading & Status ($HETHS)',
+    category: 'heading',
+    description: 'North-seeking Gyrocompass True Heading & Status (IEC 61162-1 / Anschutz Gyro format).',
+    sample: '$HETHS,316.4,A*17',
+    enabled: false,
+  },
+  {
+    id: 'ROT',
+    label: 'ROT',
+    badge: 'ROT',
+    name: 'Rate of Turn ($HEROT / $TIROT)',
+    category: 'motion',
+    description: 'Rate of turn in degrees per minute for steering, autopilots & AIS transponders.',
+    sample: '$HEROT,0.0,A*28',
     enabled: false,
   },
   {
@@ -155,6 +177,35 @@ function toNmeaDate(date: Date): string {
   return `${d}${m}${y}`;
 }
 
+let lastHdgTime = 0;
+let lastHdgValue: number | null = null;
+let currentRot = 0.0;
+
+/**
+ * Calculates rate of turn in degrees per minute (°/min)
+ * Signed: positive for starboard (turning right), negative for port (turning left)
+ */
+export function calculateRateOfTurn(currentHeading: number): number {
+  const now = Date.now();
+  if (lastHdgValue === null || lastHdgTime === 0) {
+    lastHdgValue = currentHeading;
+    lastHdgTime = now;
+    return 0.0;
+  }
+  const dtSec = (now - lastHdgTime) / 1000;
+  if (dtSec >= 0.2) {
+    let diff = currentHeading - lastHdgValue;
+    if (diff > 180) diff -= 360;
+    if (diff < -180) diff += 360;
+    const instantRot = (diff / dtSec) * 60;
+    currentRot = currentRot * 0.7 + instantRot * 0.3;
+    currentRot = Math.max(-720, Math.min(720, currentRot));
+    lastHdgValue = currentHeading;
+    lastHdgTime = now;
+  }
+  return currentRot;
+}
+
 /**
  * Generate a complete bundle of enabled NMEA 0183 sentences
  */
@@ -187,42 +238,51 @@ export function generateNmeaSentences(
 
   // For Anschütz Standard 22 (ST22), IEC 61162-1 / NMEA 0183 heading talker is 'HE' (North-seeking Gyro)
   const effectiveHdgTalker = isAnschutzSt22 ? 'HE' : talkerHdg;
+  const hdgDeg = ((compass.trueHeading % 360) + 360) % 360;
+  const hdgStr = hdgDeg.toFixed(1);
+  const thsMode = compass.calibrated ? 'A' : 'E';
 
-  // 1. HDG - Heading, Dev & Var (only if not dedicated Anschütz ST22 gyro mode)
-  if (config.activeSentences['HDG'] && !isAnschutzSt22) {
-    // $HCHDG,heading,deviation,dev_dir,variation,var_dir
+  // 1. HDG - Heading, Dev & Var
+  if (config.activeSentences['HDG']) {
     const payload = `${effectiveHdgTalker}HDG,${cogMag},,,${magVarAbs},${magVarHemi}`;
     sentences.push(buildNmeaSentence(payload));
   }
 
-  // 2. HDT - Heading True (Anschütz Standard 22 format: $HEHDT,xxx.x,T*hh\r\n)
-  if (isAnschutzSt22 || config.activeSentences['HDT']) {
-    // True heading from compass with 1 decimal digit resolution (e.g. 316.4)
-    const hdgDeg = ((compass.trueHeading % 360) + 360) % 360;
-    const hdgStr = hdgDeg.toFixed(1);
+  // 2. HDT - Heading True (When talker is ST22, produces Anschütz Standard 22 format: $HEHDT,xxx.x,T*hh\r\n)
+  if (config.activeSentences['HDT']) {
     const payload = `${effectiveHdgTalker}HDT,${hdgStr},T`;
     sentences.push(buildNmeaSentence(payload));
   }
 
-  // 3. HDM - Heading Magnetic (only if not dedicated Anschütz ST22 gyro mode)
-  if (config.activeSentences['HDM'] && !isAnschutzSt22) {
-    // $HCHDM,heading,M
+  // 3. HDM - Heading Magnetic
+  if (config.activeSentences['HDM']) {
     const payload = `${effectiveHdgTalker}HDM,${cogMag},M`;
     sentences.push(buildNmeaSentence(payload));
   }
 
-  // 4. THS - True Heading and Status
-  if (config.activeSentences['THS']) {
-    // $INTHS,heading,mode (A=Autonomous, E=Estimated, M=Manual, S=Simulator, V=Invalid)
-    const mode = compass.calibrated ? 'A' : 'E';
-    const payload = `INTHS,${compass.trueHeading.toFixed(1)},${mode}`;
+  // 4. THS (INTHS) - Integrated Navigation True Heading and Status ($INTHS)
+  if (config.activeSentences['THS'] || config.activeSentences['INTHS']) {
+    const payload = `INTHS,${hdgStr},${thsMode}`;
     sentences.push(buildNmeaSentence(payload));
   }
 
-  // 5. VHW - Water Speed and Heading
+  // 5. HETHS - Gyro True Heading and Status ($HETHS)
+  if (config.activeSentences['HETHS']) {
+    const payload = `HETHS,${hdgStr},${thsMode}`;
+    sentences.push(buildNmeaSentence(payload));
+  }
+
+  // 6. ROT - Rate of Turn ($HEROT / $TIROT)
+  if (config.activeSentences['ROT']) {
+    const rotVal = calculateRateOfTurn(compass.trueHeading);
+    const rotTalker = (isAnschutzSt22 || effectiveHdgTalker === 'HE') ? 'HE' : (effectiveHdgTalker === 'TI' ? 'TI' : 'HE');
+    const payload = `${rotTalker}ROT,${rotVal.toFixed(1)},A`;
+    sentences.push(buildNmeaSentence(payload));
+  }
+
+  // 7. VHW - Water Speed and Heading
   if (config.activeSentences['VHW']) {
-    // $IIVHW,hdg_true,T,hdg_mag,M,sog_kts,N,sog_kmh,K
-    const payload = `IIVHW,${compass.trueHeading.toFixed(1)},T,${cogMag},M,${sogKnots},N,${sogKmh},K`;
+    const payload = `IIVHW,${hdgStr},T,${cogMag},M,${sogKnots},N,${sogKmh},K`;
     sentences.push(buildNmeaSentence(payload));
   }
 
@@ -374,6 +434,14 @@ export function parseNmeaSentence(rawSentence: string): {
       if (!isNaN(cogT)) result.cogTrue = cogT;
       if (!isNaN(spdKts)) result.sogKnots = spdKts;
       summary += `COG: ${isNaN(cogT) ? '--' : cogT}°, SOG: ${isNaN(spdKts) ? '--' : spdKts} kts`;
+    } else if (type === 'ROT') {
+      // $--ROT,rate_of_turn,status
+      const rot = parseFloat(parts[1]);
+      const rotStatus = parts[2] === 'A' ? 'Valid' : 'Invalid';
+      if (!isNaN(rot)) {
+        result.rateOfTurn = rot;
+        summary += `ROT: ${rot > 0 ? '+' : ''}${rot.toFixed(1)}°/min (${rotStatus})`;
+      }
     } else {
       summary += parts.slice(1, 5).join(', ');
     }

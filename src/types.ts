@@ -35,6 +35,8 @@ export interface NmeaSentenceConfig {
   description: string;
   sample: string;
   enabled: boolean;
+  label?: string;
+  badge?: string;
 }
 
 export interface NmeaConfig {
@@ -82,6 +84,7 @@ export interface ParsedNmeaData {
   cogTrue?: number;
   headingMag?: number;
   headingTrue?: number;
+  rateOfTurn?: number;
   fixQuality?: string;
   satellites?: number;
   hdop?: number;
