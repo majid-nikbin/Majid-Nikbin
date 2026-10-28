@@ -11,7 +11,7 @@ export const AVAILABLE_SENTENCES: NmeaSentenceConfig[] = [
     category: 'heading',
     description: 'Magnetic heading with deviation and magnetic variation calculation for autopilots & ECDIS.',
     sample: '$HCHDG,045.2,,,2.1,E*2C',
-    enabled: true,
+    enabled: false,
   },
   {
     id: 'HDT',
@@ -19,7 +19,7 @@ export const AVAILABLE_SENTENCES: NmeaSentenceConfig[] = [
     category: 'heading',
     description: 'Standard True Heading sentence (degrees True). Anschutz STD22 Gyro & Radar repeater format.',
     sample: '$HEHDT,316.4,T*2B',
-    enabled: true,
+    enabled: false,
   },
   {
     id: 'HDM',
@@ -74,7 +74,7 @@ export const AVAILABLE_SENTENCES: NmeaSentenceConfig[] = [
     category: 'gps',
     description: 'Standard marine GPS sentence with position, Speed Over Ground (SOG), Course Over Ground (COG), date & variation.',
     sample: '$GPRMC,123519.00,A,2517.8420,N,05518.2910,E,12.4,047.3,190826,002.1,E*7E',
-    enabled: true,
+    enabled: false,
   },
   {
     id: 'GGA',
@@ -82,7 +82,7 @@ export const AVAILABLE_SENTENCES: NmeaSentenceConfig[] = [
     category: 'gps',
     description: 'Time, latitude, longitude, fix quality (1=GPS, 2=DGPS), satellites count, HDOP & altitude above MSL.',
     sample: '$GPGGA,123519.00,2517.8420,N,05518.2910,E,1,08,0.9,15.2,M,-1.5,M,,*47',
-    enabled: true,
+    enabled: false,
   },
   {
     id: 'GLL',
@@ -98,7 +98,7 @@ export const AVAILABLE_SENTENCES: NmeaSentenceConfig[] = [
     category: 'motion',
     description: 'Track Made Good (True and Magnetic) and Ground Speed in Knots and Kilometers/hour.',
     sample: '$GPVTG,047.3,T,045.2,M,12.4,N,23.0,K,A*21',
-    enabled: true,
+    enabled: false,
   },
   {
     id: 'ZDA',
